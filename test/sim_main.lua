@@ -1,9 +1,9 @@
 -- StellarBladePlayAs main.lua in a scratch game folder: it loads with its settings and hooks Eve's tick; its DLL (faked: it
--- answers the hook file and SBSnapShot's "T" commands) is asked for the text; F2 opens the in-game menu (UMG faked:
+-- answers the hook file and SBSnapShot's "T" commands) is asked for the text; F4 opens the in-game menu (UMG faked:
 -- widgets made, every text set recorded), the arrow keys go through the names (shown on the right with her picture,
 -- Tachy's your own from portraits/), Enter picks one and goes to Apply, Enter there applies; her voice turned off and
--- applied from its row; Backspace closes and gives the game its input back; not over the Gore mod's F3 menu; Shift+F2 picks the next one with a toast;
--- started again, it comes back as picked; with no DLL and no FText from UE4SS there is no menu, and Shift+F2 still works
+-- applied from its row; Backspace closes and gives the game its input back; not over the Gore mod's F3 menu; F4 its one key
+-- (no Shift+F4); started again, it comes back as picked; with no DLL and no FText from UE4SS there is no menu, said why
 local F = require("fake")
 local SCRIPTS = assert(os.getenv("SB_SCRIPTS"), "run from test/run.sh")
 local print = F.say
@@ -57,8 +57,12 @@ F.objects["/Script/UMG.Default__WidgetBlueprintLibrary"] = F.obj("Default__Widge
 for _, p in ipairs({ "/Game/DLC_2/Art/UI/Texture/eve_result.eve_result",
     "/Game/Art/UI/Texture/Album/NPC/image/CH_NPC_TachyNPC.CH_NPC_TachyNPC",
     "/Game/Art/UI/Texture/Album/NPC/image/CH_NPC_Raven.CH_NPC_Raven" }) do
-  F.objects[p] = F.obj(p:match("([^.]+)$"), "Texture2D")
+  F.objects[p] = F.obj(p:match("([^.]+)$"), "Texture2D", { size = 512 })
+  F.objects[p].Blueprint_GetSizeX = function(self) return self.size end
 end
+-- (Raven's in memory but not loaded through yet: no size till it is loaded)
+local ravenTex = F.objects["/Game/Art/UI/Texture/Album/NPC/image/CH_NPC_Raven.CH_NPC_Raven"]
+ravenTex.size = 0
 
 -- the DLL, faked: the hook file answered on the next look, SBSnapShot's commands carried out
 local dll = true
@@ -93,6 +97,14 @@ local pawn = F.obj("Eve", "CH_P_EVE_01_Blueprint_C", { Mesh = body, Controller =
   MeshInfoList = { ForEach = function() end } })
 local function tick(n) for _ = 1, n or 1 do F.t = F.t + 0.05; F.fire(TICK, F.param(pawn)); dll_look() end end
 local function key(k) down[k] = true; tick(); down[k] = nil; tick() end
+-- a pick through the menu: opened (on the one playing), down rows down, Enter picks, Enter on Apply, Backspace
+local function via_menu(rows)
+  F.t = F.t + 0.4
+  F.press("F4")
+  tick()
+  for _ = 1, rows do F.press("DOWN_ARROW"); tick() end
+  key("Enter"); key("Enter"); key("BackSpace")
+end
 local function choice() return read(DIR .. "choice.txt") or "" end
 local function log() return read(DIR .. "stellarbladeplayas.log") or "" end
 
@@ -101,9 +113,9 @@ start()
 check(#F.hooks[TICK] == 1, "Eve's tick hooked")
 tick(3)
 check(log():find("StellarBladePlayAsText: ok patched") ~= nil, "its DLL hooked onto SBSnapShot")
-check(F.press("F2"), "F2 bound")
+check(F.press("F4"), "F4 bound")
 tick()
-check(log():find("menu: opened") ~= nil and next(shown) ~= nil, "F2: the menu made and on screen")
+check(log():find("menu: opened") ~= nil and next(shown) ~= nil, "F4: the menu made and on screen")
 check(has_text("Play As") and has_text("Eve") and has_text("Tachy") and has_text("Scarlet") and has_text("Playing"),
   "its title, the names, Eve PLAYING (the DLL's text)")
 check(picture("eve_result") and has_text("Characters") and has_text("Adjust"), "Eve's picture on the right, its tab and key hints")
@@ -121,7 +133,11 @@ tick()
 check(picture("Texture2D_own") and imported == DIR .. "portraits/tachy.png" and has_text("Tachy's body, face and hair, her sword and her voice. Eve's moves and skills. Enter picks her, then Apply puts her on."), "Down: Tachy's picture, yours from portraits/tachy.png")
 F.press("DOWN_ARROW")
 tick()
-check(picture("CH_NPC_Raven"), "Down: Raven's picture")
+local early = picture("CH_NPC_Raven")
+ravenTex.size = 512 -- (the game finishes loading it)
+tick(12)
+check(not early and picture("CH_NPC_Raven"),
+  "Down: Raven's picture in memory without its size not put on half loaded, put on once it is (looked for twice a second)")
 F.press("UP_ARROW")
 tick()
 check(choice():find("who=eve", 1, true) == nil and choice():find("who=", 1, true) == nil, "nothing applied by moving")
@@ -133,7 +149,7 @@ check(has_text("Playing as Tachy"), "a toast says so")
 -- her voice off: its row (two up from Apply), Enter turns it, Apply (two down) applies
 F.press("UP_ARROW"); F.press("UP_ARROW")
 tick()
-check(has_text("Her Voice") and has_text("On"), "on Her Voice: On")
+check(has_text("Voice") and has_text("On"), "on Voice: On")
 key("Enter")
 check(has_text("Off") and choice():find("voice=1", 1, true) ~= nil, "Enter: Off, not applied yet")
 F.press("DOWN_ARROW"); F.press("DOWN_ARROW")
@@ -145,35 +161,32 @@ check(log():find("menu: closed") ~= nil and modes[#modes] == "game", "Backspace:
 -- the Gore mod's F3 menu open: not over it
 F.classes.UserWidget = { F.obj("SBGore_Menu_17", "UserWidget", { IsInViewport = function() return true end,
   GetVisibility = function() return 3 end }) }
-F.press("F2")
+F.press("F4")
 tick()
-check(log():find("not opened: the Gore mod's F3 menu is open") ~= nil, "F2 with the Gore mod's F3 menu open: not opened")
+check(log():find("not opened: the Gore mod's F3 menu is open") ~= nil, "F4 with the Gore mod's F3 menu open: not opened")
 F.classes.UserWidget = nil
--- Shift+F2: the next one
-check(F.press("F2", "SHIFT"), "Shift+F2 bound")
-tick()
-check(choice():find("who=raven", 1, true) ~= nil and has_text("Playing as Raven"), "Shift+F2: Raven, a toast")
--- without the NIKKE content (no Scarlet here), once things may load: Shift+F2 goes past her to Eve, her row says so,
--- and picking her changes nothing
+-- F4 its one key: Shift+F4 does nothing of its own
+check(not F.press("F4", "SHIFT"), "Shift+F4: not bound")
+via_menu(1)
+check(choice():find("who=raven", 1, true) ~= nil and has_text("Playing as Raven"), "the menu: Raven, a toast")
+-- without the NIKKE content (no Scarlet here), once things may load: her row says so, and picking her changes nothing
 for _, p in ipairs({ "/Game/Art/Character/NPC/CH_NPC_TachyNPC/CH_NPC_TachyNPC_Body.CH_NPC_TachyNPC_Body",
   "/Game/Art/Character/PC/CH_P_EVE_11/CH_P_EVE_11.CH_P_EVE_11" }) do F.objects[p] = F.objects[p] or F.obj(p:match("([^.]+)$"), "SkeletalMesh") end
 F.t = F.t + 12
 tick()
-F.press("F2", "SHIFT")
-tick()
-check(choice():find("who=eve", 1, true) ~= nil and log():find("Scarlet: .* not found %(needs its DLC%)") ~= nil,
-  "no Scarlet in the game: Shift+F2 past her to Eve")
-F.press("F2")
+F.t = F.t + 0.4
+F.press("F4")
 tick()
 check(has_text("Needs DLC"), "the menu: her row says Needs DLC")
 key("BackSpace")
-F.press("F2", "SHIFT"); tick(); F.press("F2", "SHIFT"); tick()
-check(choice():find("who=raven", 1, true) ~= nil, "Shift+F2 on: Tachy, Raven")
+via_menu(1)
+check(choice():find("who=raven", 1, true) ~= nil and log():find("Scarlet: .* not found %(needs its DLC%)") ~= nil,
+  "no Scarlet in the game: picking her changes nothing")
 check(#F.errors == 0, "no errors (" .. table.concat(F.errors, "; ") .. ")")
 -- started again: as picked
 start()
 check(log():find("playing as Raven, voice off") ~= nil, "started again: Raven, voice off")
--- no DLL, and UE4SS without the FText constructor: no menu, Shift+F2 still picks
+-- no DLL, and UE4SS without the FText constructor: no menu, said why
 os.remove(DIR .. "playas.ok")
 dll, texts, shown = false, {}, {}
 F.objects["/Script/SB.SBCheatManager:SBSnapShot"] = F.obj("SBSnapShot", "Function")
@@ -183,12 +196,9 @@ tick(3)
 F.t = F.t + 6
 tick()
 check(log():find("StellarBladePlayAsText: no answer in 5 s") ~= nil, "no DLL: told after 5 s")
-F.press("F2")
+F.press("F4")
 tick()
-check(log():find("menu: not made") ~= nil and next(shown) == nil, "F2: no menu, said why")
-F.press("F2", "SHIFT")
-tick()
-check(choice():find("who=scarlet", 1, true) ~= nil, "Shift+F2 still picks (Scarlet)")
+check(log():find("menu: not made: .*settings.lua's who still picks") ~= nil and next(shown) == nil, "F4: no menu, said why")
 
 -- installed before under its old name: its pick taken over once, and the old folder still there is told
 os.remove(DIR .. "choice.txt")
@@ -200,6 +210,39 @@ start()
 check(log():find("taken over from SBPlayAs") ~= nil and log():find("playing as Raven, voice off") ~= nil, "SBPlayAs's pick taken over")
 check(log():find("SBPlayAs %(this mod's old name%) is installed too") ~= nil, "the old one still installed: told")
 os.execute("rm -rf ue4ss/Mods/SBPlayAs")
+check(#F.errors == 0, "no errors (" .. table.concat(F.errors, "; ") .. ")")
+
+-- a pick made while she is dead (the menu in her death): her voice waits till she is up, as her look does (swapped at
+-- once, the game froze for good, playtest)
+local function wv(dir, name)
+  local path = "/Game/Sound/Dialogue/ActionVoice/" .. dir .. "/" .. name .. "_VO." .. name .. "_VO"
+  local o = F.obj(name .. "_VO", "SoundWave")
+  o.GetFullName = function() return "SoundWave " .. path end
+  F.objects[path] = o
+  return o
+end
+local eveWave = wv("Eve", "vo_eve_atk_l1")
+for i = 5, 8 do wv("Tachy", "vo_Tachy_Atk_l" .. i) end
+local wp = F.obj("SoundNodeWavePlayer_0", "SoundNodeWavePlayer", { SoundWave = eveWave })
+local function arr(list) return { ForEach = function(_, f) for i, x in ipairs(list) do f(i, { get = function() return x end }) end end } end
+local atk = F.obj("eve_vo_attack_L1_Cue", "SoundCue", { FirstNode = F.obj("SoundNodeRandom_0", "SoundNodeRandom", { ChildNodes = arr({ wp }) }), VolumeMultiplier = 0.8 })
+F.objects["/Game/Sound/Voice/PC/eve_vo_attack_L1_Cue.eve_vo_attack_L1_Cue"] = atk
+write(DIR .. "choice.txt", "who=eve\nvoice=1\nblade=1\n")
+dll = true
+os.remove("ue4ss/UE4SS.log")
+start()
+tick(3)
+local dead = true
+body.IsSimulatingPhysics = function() return dead end
+via_menu(1)
+F.t = F.t + 4
+tick(3)
+check(choice():find("who=tachy", 1, true) ~= nil and wp.SoundWave == eveWave, "picked in her death: Tachy, her voice waits")
+dead = false
+F.t = F.t + 4
+tick(3)
+check(wp.SoundWave ~= eveWave and tostring(wp.SoundWave.__name):find("Tachy") ~= nil, "up again: Tachy's voice on")
+body.IsSimulatingPhysics = function() return false end
 check(#F.errors == 0, "no errors (" .. table.concat(F.errors, "; ") .. ")")
 os.remove(DIR .. "choice.txt")
 os.remove("ue4ss/UE4SS.log")

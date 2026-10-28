@@ -25,7 +25,7 @@ cp "$HERE/Scripts/settings.lua" "$MODS/StellarBladePlayAs/Scripts/"
 cp "$OUT/main.dll" "$MODS/StellarBladePlayAsText/dlls/main.dll"
 touch "$MODS/StellarBladePlayAs/enabled.txt" "$MODS/StellarBladePlayAsText/enabled.txt"
 cp "$HERE/README.md" "$STAGE/StellarBladePlayAs-README.md"
-echo "Pictures of your own for the F2 menu: eve.png, tachy.png, raven.png or scarlet.png (or .jpg) here." > "$MODS/StellarBladePlayAs/portraits/README.txt"
+echo "Pictures of your own for the F4 menu: eve.png, tachy.png, raven.png or scarlet.png (or .jpg) here." > "$MODS/StellarBladePlayAs/portraits/README.txt"
 rm -f "$OUT/StellarBladePlayAs.zip"; (cd "$STAGE" && zip -qr -X "$OUT/StellarBladePlayAs.zip" .)
 echo "built $OUT/StellarBladePlayAs.zip"
 if [[ ${1:-} == --install ]]; then

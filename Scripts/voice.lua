@@ -5,6 +5,8 @@
 -- cue's volume, attenuation and sound class (the game's voice volume slider) stay Eve's. What was on it is put back
 -- by its path, not kept by pointer: unreferenced meanwhile, the garbage collector may have freed Eve's wave, and
 -- loading it again by name is safe where the old pointer would not be.
+-- Their recordings are quieter than Eve's (playtest): her cues' VolumeMultiplier is raised by settings.voiceVolume
+-- (VOLUME) while another's voice is on them, and given back by path with her voice.
 -- Social and fishing lines and the scenes' voice stay Eve's (the others have nothing like them).
 local M = {}
 local ctx, try, valid
@@ -30,6 +32,7 @@ M.EVE = {
   breath = { "eve_vo_breath_s_Cue", "eve_vo_breath_s_Random_Cue" },
 }
 M.EVE_DIR = "/Game/Sound/Voice/PC/"
+M.VOLUME = 1.5
 
 -- the others' recordings by the same kinds, under Sound/Dialogue/ActionVoice/<dir> (as their own cues pick them:
 -- Tachy's mirror Eve's one for one, Raven's and Scarlet's go by size, S to XL; Raven has no death line, her
@@ -64,7 +67,8 @@ M.VOICES = {
 }
 
 -- st.swapped: wave player address -> { node, path (Eve's wave), ours (its address) }; st.who: whose voice is on
-local st = { who = "eve", swapped = {}, next = 0, missing = {}, owed = false }
+-- st.vol: Eve's cue path -> its own VolumeMultiplier
+local st = { who = "eve", swapped = {}, next = 0, missing = {}, owed = false, vol = {} }
 
 function M.init(c)
   ctx, try, valid = c, c.try, c.valid
@@ -121,6 +125,12 @@ local function restore(why)
     end
   end
   st.swapped, st.owed = left, next(left) ~= nil
+  -- (her cues' own volume; one not loaded now comes back from the pak with its own)
+  for p, v in pairs(st.vol) do
+    local cue = find(p, false)
+    if cue then try(function() cue.VolumeMultiplier = v end) end
+  end
+  st.vol = {}
   if n + lost > 0 then log(string.format("Eve's voice back on %d recording slot(s)%s (%s)%s", n,
     lost > 0 and string.format(", %d not found", lost) or "", why, st.owed and ", the rest once the level is in" or "")) end
 end
@@ -137,9 +147,17 @@ local function apply(v)
       if not st.missing[p] then theirs[#theirs + 1] = p end
     end
     for _, name in ipairs(#theirs > 0 and list or {}) do
-      local cue = find(obj_path(name), false)
+      local cp = obj_path(name)
+      local cue = find(cp, false)
       if cue then
         cues = cues + 1
+        -- (louder: theirs are quieter than hers)
+        local cur = try(function() return cue.VolumeMultiplier end)
+        if cur then
+          if not st.vol[cp] then st.vol[cp] = cur end
+          local want = st.vol[cp] * (tonumber((ctx.settings or {}).voiceVolume) or M.VOLUME)
+          if math.abs(cur - want) > 1e-4 then try(function() cue.VolumeMultiplier = want end) end
+        end
         for i, node in ipairs(players(cue)) do
           local a = addr(node)
           local cur = try(function() return node.SoundWave end)

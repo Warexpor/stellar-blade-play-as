@@ -1,13 +1,13 @@
--- menu.lua: the in-game picker (F2, or settings.menuPad on the controller), made as the Stellar Blade Gore mod's F3
+-- menu.lua: the in-game picker (F4, or settings.menuPad on the controller), made as the Stellar Blade Gore mod's F3
 -- menu is (its grid, palette, fonts, focus boxes, help line and key hints: the game's own settings screen), plain UMG
 -- widgets made here at runtime, nothing in the pak. One tab, its rows the characters, her voice and blade, Apply and
 -- Close; right of the rows the game's own art of the one under the focus (its album pictures; Eve's from the NIKKE
 -- update). Up/Down (or the D-pad) goes through them; Enter / A on a name picks her ("Picked") and goes to Apply, where
 -- Enter / A puts her on; < > (or the D-pad) turns her voice or blade on or off. Nothing changes on her before Apply; Backspace /
--- B or F2 closes, a pick not applied dropped. The mouse: hover moves the focus, a click picks a name, turns a box, or
+-- B or F4 closes, a pick not applied dropped. The mouse: hover moves the focus, a click picks a name, turns a box, or
 -- applies. The world goes on while it is open; her moving and looking are held.
 -- Its text is set by StellarBladePlayAs's own DLL (StellarBladePlayAsText: UE4SS can't make an FText in this game), else by UE4SS's
--- FText where UE4SS found the engine's constructor, else there is no menu (the next-character key still works).
+-- FText where UE4SS found the engine's constructor, else there is no menu (settings.lua's who still picks).
 local M = {}
 local ctx, log, try, valid
 
@@ -28,7 +28,7 @@ M.CHARS = {
   { key = "tachy", name = "Tachy", tex = "/Game/Art/UI/Texture/Album/NPC/image/CH_NPC_TachyNPC.CH_NPC_TachyNPC", aspect = 1,
     about = "Tachy's body, face and hair, her sword and her voice. Eve's moves and skills." },
   { key = "raven", name = "Raven", tex = "/Game/Art/UI/Texture/Album/NPC/image/CH_NPC_Raven.CH_NPC_Raven", aspect = 1,
-    about = "Raven's suit and long hair, her blade and her voice. The game has no Raven face for Eve's body: the face stays Eve's." },
+    about = "Raven's suit, face and long hair, her blade and her voice. Her face doesn't move with Eve's expressions." },
   { key = "scarlet", name = "Scarlet", tex = "/Game/DLC_2/Art/UI/Texture/Album/NPC/image/CH_NPC_Scarlet.CH_NPC_Scarlet", aspect = 1,
     about = "Scarlet's body, head and hair, her sword and her voice. Needs the NIKKE collaboration content." },
 }
@@ -56,9 +56,9 @@ M.KEYS = {
 M.R0, M.RH, M.BH = 222, 58, 48
 M.ROWS = {}
 for _, c in ipairs(M.CHARS) do M.ROWS[#M.ROWS + 1] = { char = c } end
-M.ROWS[#M.ROWS + 1] = { box = "voice", label = "Her Voice",
+M.ROWS[#M.ROWS + 1] = { box = "voice", label = "Voice",
   help = "Her grunts, attack shouts, hurt and death sounds in the voice of the one she plays. Off: Eve's." }
-M.ROWS[#M.ROWS + 1] = { box = "blade", label = "Her Blade", help = "Her own blade in place of Eve's sword. Off: Eve's sword." }
+M.ROWS[#M.ROWS + 1] = { box = "blade", label = "Blade", help = "Her own blade in place of Eve's sword. Off: Eve's sword." }
 M.ROWS[#M.ROWS + 1] = { apply = true, label = "Apply" }
 M.ROWS[#M.ROWS + 1] = { close = true, label = "Close", help = "Closes the menu. A pick not applied is dropped." }
 for i, row in ipairs(M.ROWS) do row.y = M.R0 + (i - 1) * M.RH end
@@ -68,6 +68,7 @@ M.PAD = { "Gamepad_LeftShoulder", "Gamepad_RightShoulder", "Gamepad_RightThumbst
 M.nav = {} -- the arrow keys pressed since the menu last looked (main.lua's binds)
 M.state = { open = false, sel = 1, held = {}, toggled = 0 }
 M.tex = {}
+M.PIC_RETRY = 3
 
 local function read(p) local f = io.open(p, "r"); if not f then return nil end; local s = f:read("a"); f:close(); return s end
 local function write(p, s) local f = io.open(p, "w"); if f then f:write(s); f:close() end end
@@ -256,7 +257,7 @@ local function build()
   ui.pic, ui.picSlot = box(1100, 70, 900, 900, 1, 1, 1, 1)
   show(ui.pic, false)
   tint(text(101, 92, 23, "Play As"), 0.716, 0.246, 0.034)
-  tint(text(101, 196, 9, "SBPLAYAS  " .. tostring(ctx.version or ""), { font = s.bold, spacing = 200 }), 0.25, 0.27, 0.3)
+  tint(text(101, 196, 9, "STELLAR BLADE PLAY AS  " .. tostring(ctx.version or ""), { font = s.bold, spacing = 200 }), 0.25, 0.27, 0.3)
   -- the one tab, focused (as the F3 menu's open tab)
   focus(101, M.R0, 208, M.BH)
   tint(text(116, M.R0 + M.BH / 2, 17, "Characters", { font = s.bold, mid = true }), 0.022, 0.025, 0.05)
@@ -325,7 +326,7 @@ local function build()
   end
   ui.keys = {}
   -- (the keyboard's Exit: the menu's key, its icon when it is a plain F key, else a cap with its name)
-  local mk = tostring(ctx.menuKey or "F2")
+  local mk = tostring(ctx.menuKey or "F4")
   for set, list in pairs(M.HINTS) do
     if set == "kb" then
       list = { list[1], list[2], { { "PC/KeyIcon_KeyBoard_" .. (mk:match("^F%d+$") or "None") }, "Exit", mk } }
@@ -369,11 +370,17 @@ local function picture(c)
   t = not M.tex["-" .. c.key] and own_picture(c)
   if t then M.tex[c.key] = t; return t end
   t = try(function() return StaticFindObject(c.tex) end)
-  if not valid(t) and LoadAsset and ctx.may_load() and not M.tex["!" .. c.key] then
+  -- (one in memory but not loaded through yet, the game still streaming it in, has no size: put on the picture it
+  -- showed nothing, and counted as shown it was never looked for again, playtest. Loaded here, it is finished first)
+  if valid(t) and (try(function() return t:Blueprint_GetSizeX() end) or 0) <= 0 then t = nil end
+  -- (a load that found nothing is tried again PIC_RETRY s later: one asked while a level was coming in found nothing,
+  -- and the picture never came back that session, playtest)
+  local failed = M.tex["!" .. c.key]
+  if not valid(t) and LoadAsset and ctx.may_load() and not (failed and os.clock() - failed < M.PIC_RETRY) then
     t = try(function() return LoadAsset(c.tex) end)
-    if not valid(t) and not M.tex["!" .. c.key] then
-      M.tex["!" .. c.key] = true
-      log(c.name .. "'s picture not found: " .. c.tex)
+    if not valid(t) then
+      M.tex["!" .. c.key] = os.clock()
+      if not M.tex["?" .. c.key] then M.tex["?" .. c.key] = true; log(c.name .. "'s picture not found: " .. c.tex) end
     end
   end
   M.tex[c.key] = valid(t) and t or nil
@@ -386,6 +393,7 @@ local function pending_changed()
 end
 local function char_of(key) for _, c in ipairs(M.CHARS) do if c.key == key then return c end end end
 
+local show_picture -- (below)
 local function render()
   local s, ui = M.state, M.state.ui
   if not ui then return end
@@ -421,8 +429,16 @@ local function render()
       or " Enter picks her, then Apply puts her on.")
   else help = row.help end
   set_text(ui.help, help)
-  -- her picture: the name under the focus, else the one picked
-  local c = row.char or picked
+  show_picture()
+  for setn, list in pairs(ui.keys) do
+    show_all(list, setn == (s.pad and ((ctx.settings.padIcons == "xbox") and "xbox" or "playstation") or "kb"))
+  end
+end
+-- her picture: the name under the focus, else the one picked
+show_picture = function()
+  local s, ui = M.state, M.state.ui
+  local row = M.ROWS[s.sel]
+  local c = row.char or char_of(s.who) or M.CHARS[1]
   if s.shown ~= c.key or not valid(ui.picTex) then
     local t = picture(c)
     if t and try(function() ui.pic:SetBrushFromTexture(t, false); return true end) then
@@ -442,9 +458,6 @@ local function render()
       show(ui.pic, false)
       ui.picTex, s.shown = nil, nil
     end
-  end
-  for setn, list in pairs(ui.keys) do
-    show_all(list, setn == (s.pad and ((ctx.settings.padIcons == "xbox") and "xbox" or "playstation") or "kb"))
   end
 end
 
@@ -502,7 +515,7 @@ function M.open(pawn)
   local ok = s.ui and valid(s.ui.w) and try(function() return s.ui.w:IsInViewport() end)
   if not ok and not text_by() then
     log(text.hooked == nil and "not made yet: StellarBladePlayAsText hasn't answered (a few seconds after the game starts)"
-      or "not made: StellarBladePlayAsText can't set its text, and UE4SS didn't find the game's FText constructor; Shift+F2 still picks the next one")
+      or "not made: StellarBladePlayAsText can't set its text, and UE4SS didn't find the game's FText constructor; settings.lua's who still picks")
     return
   end
   if not ok then
@@ -654,8 +667,11 @@ function M.tick(pawn)
     end
   end
   s.swallow = false
+  -- her picture not there yet (not loaded while the game may be loading: Raven's stayed blank after a respawn,
+  -- playtest), or the engine let the one shown go: looked for again twice a second
+  if (not s.shown or not valid(s.ui.picTex)) and now >= (s.picNext or 0) then s.picNext = now + 0.5; show_picture() end
 end
--- what was applied from elsewhere (Shift+F2) shown at once on an open menu
+-- what was applied from elsewhere shown at once on an open menu
 function M.refresh()
   local s = M.state
   if not s.open then return end

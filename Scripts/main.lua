@@ -2,8 +2,7 @@
 -- speaks with her voice (voice.lua); everything else stays Eve's: her moves, skills, physics, and any other mod's work
 -- on her body. A mod of its own: it needs nothing else, and the Stellar Blade Gore mod (if there) sees who she looks
 -- like by her meshes for its own death sounds.
---   F2        the in-game picker (menu.lua; on the controller settings.menuPad): pick, Apply
---   Shift+F2  the next character, no menu (a line at the top of the screen says who)
+--   F4        the in-game picker (menu.lua; on the controller settings.menuPad): pick, Apply. Its one key
 -- All of it runs from Eve's own ReceiveTick (on the game thread). The menu's text is set by StellarBladePlayAs's own DLL
 -- (StellarBladePlayAsText, native/playas.c).
 local VERSION = "0.2.0"
@@ -13,7 +12,6 @@ local CHOICE, LOG = DIR .. "choice.txt", DIR .. "stellarbladeplayas.log"
 -- its folder before it was renamed (SBPlayAs): its pick is read once if this one has none
 local OLD = "ue4ss/Mods/SBPlayAs/"
 local TICK_FN = "/Game/Art/Character/PC/CH_P_EVE_01/Blueprints/CH_P_EVE_01_Blueprint.CH_P_EVE_01_Blueprint_C:ReceiveTick"
-local ORDER = { "eve", "tachy", "raven", "scarlet" }
 local LABELS = { eve = "Eve", tachy = "Tachy", raven = "Raven", scarlet = "Scarlet" }
 
 local lg = io.open(LOG, "w")
@@ -58,7 +56,7 @@ end
 local quietUntil = 0
 -- (windowKey: the menu key's name before the menu)
 local ctx = { settings = settings, log = log, try = try, valid = valid, version = VERSION,
-  menuKey = settings.menuKey or settings.windowKey or "F2",
+  menuKey = settings.menuKey or settings.windowKey or "F4",
   may_load = function() return os.clock() >= quietUntil end }
 local function module(name)
   local ok, m = pcall(dofile, SCRIPTS .. name)
@@ -102,21 +100,11 @@ do
 end
 
 local pawn, pawnAddr, pawnSeen = nil, nil, 0
+local voiceWho      -- the voice on her cues now (a pick made while she is dead waits)
 local pending = {}  -- keys pressed (UE4SS's input thread), run on her tick
 
 local ACTIONS = {
   menu = function() if menu then menu.toggle(pawn, false) end end,
-  next = function()
-    local i = 1
-    for j, k in ipairs(ORDER) do if k == settings.who then i = j end end
-    -- (past one the game hasn't: Scarlet without the NIKKE content)
-    local n = ORDER[i % #ORDER + 1]
-    for _ = 1, #ORDER do
-      if not looks or looks.available(n) ~= false then break end
-      i = i + 1; n = ORDER[i % #ORDER + 1]
-    end
-    ctx.apply(n, settings.voice ~= false, settings.blade ~= false, "Shift+" .. tostring(settings.nextKey or "F2"))
-  end,
 }
 -- a key with modifiers fires the plain key's bind too: per key, the bind with the most modifiers wins
 local function bind(key, mods, id)
@@ -136,7 +124,6 @@ local function bind(key, mods, id)
 end
 local MENU_KEY = ctx.menuKey
 bind(MENU_KEY, {}, "menu")
-bind(settings.nextKey or "F2", { "SHIFT" }, "next")
 -- the arrow keys, for the menu (the engine never sees them down: UE4SS's binds do)
 for _, d in ipairs({ { "UP_ARROW", "up" }, { "DOWN_ARROW", "down" }, { "LEFT_ARROW", "left" }, { "RIGHT_ARROW", "right" } }) do
   pcall(RegisterKeyBind, Key[d[1]], function() if menu and menu.state.open then menu.nav[#menu.nav + 1] = d[2] end end)
@@ -181,8 +168,11 @@ local function tick(c)
       if not ok then log("look: " .. tostring(err)) end
     end
   end
+  -- (the voice a pick changes waits, as her look does, till she is up: swapped in her death, at once, the
+  -- waves her death sounds played left her cues under them and the game froze for good, playtest)
+  if not dead or not voiceWho then voiceWho = settings.voice ~= false and settings.who or "eve" end
   if voice then
-    local ok, err = pcall(voice.tick, settings.voice ~= false and settings.who or "eve")
+    local ok, err = pcall(voice.tick, voiceWho)
     if not ok then log("voice: " .. tostring(err)) end
   end
 end
@@ -202,6 +192,6 @@ end
 pcall(RegisterHook, "/Script/Engine.PlayerController:ClientRestart", function() pcall(hook, "player start") end)
 LoopAsync(1000, function() return hooked or hook("loop") end)
 
-log(string.format("StellarBladePlayAs %s loaded: playing as %s, voice %s, blade %s; %s menu, Shift+%s next", VERSION,
+log(string.format("StellarBladePlayAs %s loaded: playing as %s, voice %s, blade %s; %s menu", VERSION,
   LABELS[settings.who or "eve"], settings.voice == false and "off" or "on", settings.blade == false and "off" or "on",
-  tostring(MENU_KEY), tostring(settings.nextKey or "F2")))
+  tostring(MENU_KEY)))

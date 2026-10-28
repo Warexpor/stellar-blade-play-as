@@ -27,7 +27,7 @@ local function cue(name, waves)
   local rnd = F.obj("SoundNodeRandom_0", "SoundNodeRandom", { ChildNodes = arr(ps) })
   local mod = F.obj("SoundNodeModulator_0", "SoundNodeModulator", { ChildNodes = arr({ rnd }) })
   local c = asset("/Game/Sound/Voice/PC/" .. name .. "." .. name:match("([^/]+)$"), "SoundCue")
-  c.FirstNode = mod
+  c.FirstNode, c.VolumeMultiplier = mod, 0.8
   return c, ps
 end
 local e1, e2, e3 = wave("Eve", "vo_eve_atk_l1"), wave("Eve", "vo_eve_atk_l3"), wave("Eve", "vo_eve_atk_l4")
@@ -58,11 +58,13 @@ tick("tachy")
 check(pl[1].SoundWave == t[5] and pl[2].SoundWave == t[6], "Tachy's heavy attacks on Eve's heavy attack cue")
 check(pl[3].SoundWave == t[8], "a slot whose recording the game lacks: the next of hers")
 check(pd[1].SoundWave == tdie, "Tachy's death line on Eve's death cue")
+check(math.abs(atkL.VolumeMultiplier - 1.2) < 1e-6, "Eve's cue 1.5 times as loud for Tachy's quieter recordings")
 check(atkL.FirstNode.__cls == "SoundNodeModulator", "the cue's graph is Eve's still")
 check(has("not found"), "a recording missing from the game: logged")
 local n, nl = #logs, #loads
 tick("tachy")
 check(#logs == n and #loads == nl, "every 3 s after: nothing to do, nothing loaded or logged again")
+check(math.abs(atkL.VolumeMultiplier - 1.2) < 1e-6, "and not raised again")
 -- the game loads Eve's cue anew (a level): it gets Tachy's on the next look
 local _, pl2 = cue("eve_vo_attack_L1_Cue", { e1, e2, e3 })
 tick("tachy")
@@ -72,9 +74,12 @@ e1.__dead = true
 local e1b = wave("Eve", "vo_eve_atk_l1")
 tick("raven")
 check(pl2[1].SoundWave == r[1] and pl2[2].SoundWave == r[2], "Raven: hers on, Tachy's off")
+local atkL2 = F.objects["/Game/Sound/Voice/PC/eve_vo_attack_L1_Cue.eve_vo_attack_L1_Cue"]
+check(math.abs(atkL2.VolumeMultiplier - 1.2) < 1e-6, "Raven's as loud (her cue's own volume back, then raised once)")
 tick("eve")
 check(pl2[1].SoundWave == e1b and pl2[2].SoundWave == e2 and pl2[3].SoundWave == e3 and pl[3].SoundWave == e3, "Eve again: her own back, the freed one loaded again by path")
 check(pd[1].SoundWave == d1, "her death cue: her own death line back")
+check(math.abs(atkL2.VolumeMultiplier - 0.8) < 1e-6, "Eve: her cue's own volume back")
 -- a level loading: Raven's not in memory and nothing loaded from the pak: not given up on, on once it is in
 local quiet = true
 ctx.may_load = function() return not quiet end

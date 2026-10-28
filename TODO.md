@@ -1,12 +1,20 @@
 # To do
 
-## First playtest (untried in game)
+## Second playtest
 
-The sims pass (`test/run.sh`), and with the Gore mod its `native/sbslice/test/real/playas.sh` (its cuts and ragdoll fixes on these characters' meshes and physics assets). Nothing of it seen in game yet. F2 (its menu: `menu:` lines), its `look:` and `voice:` lines in `StellarBladePlayAs/stellarbladeplayas.log`.
+The sims pass (`test/run.sh`), and with the Gore mod its `native/sbslice/test/real/playas.sh` (its cuts and ragdoll fixes on these characters' meshes and physics assets). F4 (its menu: `menu:` lines), its `look:` and `voice:` lines in `StellarBladePlayAs/stellarbladeplayas.log`.
 
-- Tachy's hair physics on Eve's Blueprint (her hair bones may hang stiff), Raven's hair on master pose (its own bones at their reference pose), Scarlet with the DLC, the blades in her hand (does a blade on its own skeleton show unfolded and on her hand socket?), an outfit change and a camp rest while on.
-- Their outfits in their own materials (no glow, nothing of Eve's outfit left; `look: her slots:` lists what is in each slot), the blade hidden in her hairpin and shown at once when drawn.
-- The F2 menu: its text (`menu: StellarBladePlayAsText: ok patched`, `its text by dll`), the pictures (sharp, placed right on 16:9 and 21:9), the key icons, the mouse and the controller combo, her input back on closing; the toast on Shift+F2.
-- The voice: her attack and hurt lines in Tachy's, Raven's and Scarlet's voice (`voice: tachy's voice on N recording slot(s) of M of Eve's cues`), Eve's back on picking Eve, after a death and a level load too; any hitch as it swaps.
-- Moving over from `SBPlayAs`: the pick kept, the log's line while the old folders are still there.
-- With the Gore mod: a cut and her ragdoll as each (Raven's hair off with her head, Scarlet's head cut with her body), the Gore mod's death cry in her voice.
+Seen in the first playtests (2026-10-28, all fixed since, see the changelog): the blade hidden mid-swing and standing in her hair after a cutscene, Eve's hairpin on Tachy, Raven with Eve's face and stiff hair, no Raven picture after a respawn, a crash when Raven's suit went back on over a fresh Gore mod cut. To look at next:
+
+- Back to Eve after each of them, with a shield-break outfit mod's torn suit put on meanwhile too: her outfit whole, in its own materials (`(the game put ... on her: hers for Eve)`, any `a material of the last look on her again` line).
+- Scarlet: her face on (seam, eyes), her blade along her hand as Eve holds hers (drawn, mid-combo, after a dodge), Eve's sword straight again after.
+- Raven's hair on her back and legs, not through them (`touching 10 capsules on her body`): any jitter or a strand flung off as it settles at spawn, running, rolling.
+- Tachy's hair: `look: Tachy's hair: at her head, ... strand bones swung by spring` and `its hair's sections hidden (4, 5)`. It swings (no physics now: the mod swings its bones itself), rests on her back, no second (still) copy of her hair on her body, no seam where it meets her head. With the Gore mod: a head cut and her death ragdoll with it (a cut-off head showing her hidden hair again would be the Gore mod drawing hidden sections).
+- Raven's hair: calmer now (damping 2, 12 on every strand, `hairDamping` 100). Still too lively or too stiff: `hairDamping` (higher calms it), `hairSpring` in settings.lua. Any `put back as made` lines.
+- Scarlet's hair: `look: Scarlet: ... hair EVE_HR_Nikke_01` (no `AnimBP NOT found`) and `its hair's sections hidden (3, 4, 5)`. Her hair, hat and fur swing; none of her body's own still copy showing; the hairstyle sits right on her head. Back to Eve: Eve's own hair.
+- Raven's face at Eve's neck: the seam, the size, eyes and mouth still (it takes no expressions); with the Gore mod, her head off.
+- The blade: `look: blade on Weapon: not on her head (shown)` and `on SC_SwordingPoint: on her head (put away: hidden)`; any other socket it is logged on. In a cutscene: the blade and the hairpin hidden.
+- An outfit change and a camp rest while on.
+- With the Gore mod and a shield-break outfit mod: an arm off at low HP as Raven (`look: a part of her is off ...`, then `whole again` after the rest), no crash.
+- The F4 menu: every picture there each time it opens, also right after a respawn or level load (sharp, placed right on 16:9 and 21:9), the key icons, the mouse and the controller combo, her input back on closing; the toast on Apply.
+- The voice: Eve's back on picking Eve, after a death and a level load too; any hitch as it swaps.

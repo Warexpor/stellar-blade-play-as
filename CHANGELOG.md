@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0
+## 0.2.0
 
 - First release, as a mod of its own (it began inside the Stellar Blade Gore mod, then as `SBPlayAs`): play as Tachy (her NPC body, hair and face, built on Eve's skeleton), Raven (her suit and her own hair on Eve's pose; Eve's face, as the game has no Raven head for Eve's rig) or Scarlet (NIKKE content: her body, head and hair). Eve's own components take the meshes, so her moves, ragdoll and any other mod's work on her stay. Each fights with her own blade (Tachy_Sword, Raven_Blade, Scarlet_Sword); folded, it is hidden. Whatever the game puts back (a level, a respawn, the outfit menu) is set again within a second.
 - F2 opens an in-game menu built like the Gore mod's F3 menu: the characters as its rows, the game's own art of the one under the focus on the right (a `.png` or `.jpg` of your own in `StellarBladePlayAs/portraits/` goes in its place), Enter picks, Apply puts her on, Her Voice and Her Blade rows, the controller too (LB + RB + R3). Its text is set by its own DLL (`StellarBladePlayAsText`, on the cheat function `SBSnapShot`). Shift+F2 switches to the next one.

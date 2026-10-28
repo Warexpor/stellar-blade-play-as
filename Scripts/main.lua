@@ -6,7 +6,7 @@
 --   Shift+F2  the next character, no menu (a line at the top of the screen says who)
 -- All of it runs from Eve's own ReceiveTick (on the game thread). The menu's text is set by StellarBladePlayAs's own DLL
 -- (StellarBladePlayAsText, native/playas.c).
-local VERSION = "1.0.0"
+local VERSION = "0.2.0"
 local DIR = "ue4ss/Mods/StellarBladePlayAs/"
 local SCRIPTS = DIR .. "Scripts/"
 local CHOICE, LOG = DIR .. "choice.txt", DIR .. "stellarbladeplayas.log"

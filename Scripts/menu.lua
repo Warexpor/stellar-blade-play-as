@@ -396,7 +396,8 @@ local function render()
     show_all(r.focus, on)
     local val = ""
     if row.char then
-      val = row.char.key == (set.who or "eve") and "Playing" or row.char.key == s.who and "Picked" or ""
+      val = row.char.key == (set.who or "eve") and "Playing" or row.char.key == s.who and "Picked"
+        or (ctx.looks and ctx.looks.available(row.char.key) == false) and (ctx.looks.LOOKS[row.char.key].dlc and "Needs DLC" or "Not found") or ""
     elseif row.box then val = s[row.box] and "On" or "Off" end
     set_text(r.val, val)
     if r.la then show(r.la, on); show(r.ra, on) end

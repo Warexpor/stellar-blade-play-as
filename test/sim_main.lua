@@ -153,6 +153,22 @@ F.classes.UserWidget = nil
 check(F.press("F2", "SHIFT"), "Shift+F2 bound")
 tick()
 check(choice():find("who=raven", 1, true) ~= nil and has_text("Playing as Raven"), "Shift+F2: Raven, a toast")
+-- without the NIKKE content (no Scarlet here), once things may load: Shift+F2 goes past her to Eve, her row says so,
+-- and picking her changes nothing
+for _, p in ipairs({ "/Game/Art/Character/NPC/CH_NPC_TachyNPC/CH_NPC_TachyNPC_Body.CH_NPC_TachyNPC_Body",
+  "/Game/Art/Character/PC/CH_P_EVE_11/CH_P_EVE_11.CH_P_EVE_11" }) do F.objects[p] = F.objects[p] or F.obj(p:match("([^.]+)$"), "SkeletalMesh") end
+F.t = F.t + 12
+tick()
+F.press("F2", "SHIFT")
+tick()
+check(choice():find("who=eve", 1, true) ~= nil and log():find("Scarlet: .* not found %(needs its DLC%)") ~= nil,
+  "no Scarlet in the game: Shift+F2 past her to Eve")
+F.press("F2")
+tick()
+check(has_text("Needs DLC"), "the menu: her row says Needs DLC")
+key("BackSpace")
+F.press("F2", "SHIFT"); tick(); F.press("F2", "SHIFT"); tick()
+check(choice():find("who=raven", 1, true) ~= nil, "Shift+F2 on: Tachy, Raven")
 check(#F.errors == 0, "no errors (" .. table.concat(F.errors, "; ") .. ")")
 -- started again: as picked
 start()

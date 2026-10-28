@@ -47,7 +47,7 @@ M.WEAPON, M.SWORD = { [5] = true, [6] = true, [7] = true, [8] = true }, "CH_W_Sw
 -- showed there, playtest)
 M.PIN_IN_CM, M.PIN_OUT_CM = 40, 60
 
-local st = { pawn = nil, who = "eve", blade = true, was = nil, next = 0, failed = {}, blades = {}, pinned = {} }
+local st = { pawn = nil, who = "eve", blade = true, was = nil, next = 0, failed = {}, found = {}, blades = {}, pinned = {} }
 
 function M.init(c)
   ctx, try, valid = c, c.try, c.valid
@@ -312,6 +312,19 @@ function M.tick(pawn, mesh, dead)
 end
 -- the pick changed: at once
 function M.apply_now() st.next = 0 end
+-- can she play as who: false once her body isn't in the game (Scarlet without the NIKKE content), nil while that
+-- can't be told (nothing may load now)
+function M.available(who)
+  local look = M.LOOKS[who]
+  if not look then return true end
+  if st.failed[look.body] then return false end
+  if st.found[look.body] or valid(try(function() return StaticFindObject(look.body) end)) then return true end
+  if ctx.may_load and not ctx.may_load() then return nil end
+  if asset(look.body) then st.found[look.body] = true; return true end
+  st.failed[look.body] = true
+  log(string.format("%s: %s not found%s", look.label, look.body, look.dlc and " (needs its DLC)" or ""))
+  return false
+end
 -- who she looks like now (eve when nothing is on her)
 function M.current() return st.who end
 -- the level reloaded: nothing of the old Eve touched

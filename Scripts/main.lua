@@ -67,11 +67,19 @@ local function module(name)
   return m
 end
 local looks, voice = module("looks.lua"), module("voice.lua")
+ctx.looks = looks
 
 -- who she plays, her voice and her blade, put on her now and kept for the next start
 local menu
 function ctx.apply(who, vo, bl, why)
   if not LABELS[who] then return end
+  if looks and looks.available(who) == false then
+    local dlc = looks.LOOKS[who].dlc
+    log(string.format("%s isn't in this game (%s): still %s", LABELS[who], dlc and "needs the NIKKE collaboration content" or "her meshes not found",
+      LABELS[settings.who or "eve"]))
+    if menu then menu.toast(LABELS[who] .. (dlc and " needs the NIKKE collaboration content" or " isn't in this game")) end
+    return
+  end
   local same = who == (settings.who or "eve") and vo == (settings.voice ~= false) and bl == (settings.blade ~= false)
   if same then return end
   settings.who, settings.voice, settings.blade = who, vo, bl
@@ -101,8 +109,13 @@ local ACTIONS = {
   next = function()
     local i = 1
     for j, k in ipairs(ORDER) do if k == settings.who then i = j end end
-    ctx.apply(ORDER[i % #ORDER + 1], settings.voice ~= false, settings.blade ~= false,
-      "Shift+" .. tostring(settings.nextKey or "F2"))
+    -- (past one the game hasn't: Scarlet without the NIKKE content)
+    local n = ORDER[i % #ORDER + 1]
+    for _ = 1, #ORDER do
+      if not looks or looks.available(n) ~= false then break end
+      i = i + 1; n = ORDER[i % #ORDER + 1]
+    end
+    ctx.apply(n, settings.voice ~= false, settings.blade ~= false, "Shift+" .. tostring(settings.nextKey or "F2"))
   end,
 }
 -- a key with modifiers fires the plain key's bind too: per key, the bind with the most modifiers wins

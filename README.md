@@ -15,7 +15,7 @@ Play Stellar Blade as Tachy, Raven or Scarlet. Pick her in an in-game menu (F2) 
 |---|---|---|---|
 | Tachy | Her own body, hair and face (the beach-scene Tachy, built on Eve's skeleton) | Tachy's sword | Tachy's attack, hurt, breath and death lines |
 | Raven | Her suit and her own hair. Eve's face stays, because the game has no Raven head for Eve's skeleton | Raven's blade | Raven's lines. Raven has no death line in the game, so her heaviest hurt screams play instead |
-| Scarlet | Her whole body, head and hair. Needs the NIKKE collaboration content | Scarlet's sword | Scarlet's lines, including her own death lines |
+| Scarlet | Her whole body, head and hair. Needs the NIKKE collaboration content: without it her row says "Needs DLC", picking her changes nothing and Shift+F2 skips her; Tachy and Raven are the base game's | Scarlet's sword | Scarlet's lines, including her own death lines |
 
 Your pick, Her Voice and Her Blade are saved in `StellarBladePlayAs/choice.txt` and come back the next time you start the game. Defaults and keys are set in `StellarBladePlayAs/Scripts/settings.lua`. The game's voice volume slider controls her voice as usual. The voice follows the game's voice language as long as the game ships that character's lines in it.
 

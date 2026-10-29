@@ -92,4 +92,31 @@ check(pl2[1].SoundWave == e1b and not said, "a level loading: Eve's stays, Raven
 quiet = false
 tick("raven")
 check(pl2[1].SoundWave == r[1], "the level in: Raven's on")
+-- a sweep spread over ticks: PER_TICK of her cues a tick, the rest the next
+V.PER_TICK = 1
+tick("eve")
+F.t = F.t + 3.5; V.tick("tachy")
+local one = (pl[1].SoundWave ~= e1 and 1 or 0) + (pd[1].SoundWave ~= d1 and 1 or 0)
+V.tick("tachy")
+local two = (pl[1].SoundWave ~= e1 and 1 or 0) + (pd[1].SoundWave ~= d1 and 1 or 0)
+check(one == 1 and two == 2, string.format("one cue a tick: %d after the first, %d after the second", one, two))
+V.PER_TICK = 4
+
+-- her recordings not in memory: all loaded, and the whole sweep done, in the one tick that needs them
+tick("eve")
+local sfo, la, loads = StaticFindObject, LoadAsset, 0
+StaticFindObject = function(p) if p:find("ActionVoice", 1, true) then return nil end return sfo(p) end
+LoadAsset = function(p) loads = loads + 1; return la(p) end
+V.PER_TICK = 1
+F.t = F.t + 3.5
+V.tick("tachy")
+check(loads > 1 and pl[1].SoundWave ~= e1 and pd[1].SoundWave ~= d1,
+  string.format("not in memory: all of hers loaded and on in one tick (%d loads)", loads))
+loads = 0
+F.t = F.t + 3.5
+for _ = 1, 4 do V.tick("tachy") end
+check(loads == 0, string.format("after: no loads during play (%d)", loads))
+V.PER_TICK = 4
+StaticFindObject, LoadAsset = sfo, la
+
 print(fails == 0 and "PASS" or "FAIL")

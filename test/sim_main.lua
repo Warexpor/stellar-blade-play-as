@@ -81,9 +81,10 @@ local function dll_look()
 end
 
 -- her controller: the keys held down (IsInputKeyDown)
-local down = {}
+local down, tapped = {}, {}
 local pc = F.obj("PC", "SBNetworkPlayerController", {
-  IsInputKeyDown = function(_, k) return down[tostring(k.KeyName)] == true end })
+  IsInputKeyDown = function(_, k) return down[tostring(k.KeyName)] == true end,
+  WasInputKeyJustPressed = function(_, k) return tapped[tostring(k.KeyName)] == true end })
 F.objects["/Script/Engine.Default__GameplayStatics"] = F.obj("Default__GameplayStatics", "GameplayStatics", {
   GetPlayerController = function() return pc end })
 local function start()
@@ -95,7 +96,7 @@ local body = F.obj("Body", "SkeletalMeshComponent", { SkeletalMesh = F.obj("CH_P
 body.IsSimulatingPhysics = function() return false end
 local pawn = F.obj("Eve", "CH_P_EVE_01_Blueprint_C", { Mesh = body, Controller = pc,
   MeshInfoList = { ForEach = function() end } })
-local function tick(n) for _ = 1, n or 1 do F.t = F.t + 0.05; F.fire(TICK, F.param(pawn)); dll_look() end end
+local function tick(n) for _ = 1, n or 1 do F.t = F.t + 0.05; F.fire(TICK, F.param(pawn)); dll_look(); tapped = {} end end
 local function key(k) down[k] = true; tick(); down[k] = nil; tick() end
 -- a pick through the menu: opened (on the one playing), down rows down, Enter picks, Enter on Apply, Backspace
 local function via_menu(rows)
@@ -158,6 +159,13 @@ key("Enter")
 check(choice():find("who=tachy\nvoice=0", 1, true) ~= nil, "Apply: her voice off, saved")
 key("BackSpace")
 check(log():find("menu: closed") ~= nil and modes[#modes] == "game", "Backspace: closed, the game's input back")
+-- (a tap on the controller within one long frame, a hitch: never seen down, only just pressed)
+F.t = F.t + 0.4
+F.press("F4"); tick()
+local closes = select(2, log():gsub("menu: closed", ""))
+tapped["Gamepad_FaceButton_Right"] = true; tick()
+check(select(2, log():gsub("menu: closed", "")) == closes + 1, "B / Circle tapped within one frame: closed")
+F.t = F.t + 0.4
 -- the Gore mod's F3 menu open: not over it
 F.classes.UserWidget = { F.obj("SBGore_Menu_17", "UserWidget", { IsInViewport = function() return true end,
   GetVisibility = function() return 3 end }) }
@@ -243,6 +251,15 @@ F.t = F.t + 4
 tick(3)
 check(wp.SoundWave ~= eveWave and tostring(wp.SoundWave.__name):find("Tachy") ~= nil, "up again: Tachy's voice on")
 body.IsSimulatingPhysics = function() return false end
+-- a scene's copy of her (her Blueprint, not the player's pawn) ticking while hers is paused: not taken for a new Eve
+local gsObj = F.objects["/Script/Engine.Default__GameplayStatics"]
+gsObj.GetPlayerPawn = function() return pawn end
+local copy = F.obj("Eve_Seq", "CH_P_EVE_01_Blueprint_C", { Mesh = body, MeshInfoList = { ForEach = function() end } })
+local news = select(2, log():gsub("new Eve", ""))
+for _ = 1, 40 do F.t = F.t + 0.05; F.fire(TICK, F.param(copy)) end
+tick(2)
+check(select(2, log():gsub("new Eve", "")) == news, "a scene's copy of her ticking for 2 s: still the player's Eve, nothing forgotten")
+gsObj.GetPlayerPawn = nil
 check(#F.errors == 0, "no errors (" .. table.concat(F.errors, "; ") .. ")")
 os.remove(DIR .. "choice.txt")
 os.remove("ue4ss/UE4SS.log")

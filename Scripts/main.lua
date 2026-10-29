@@ -5,7 +5,7 @@
 --   F4        the in-game picker (menu.lua; on the controller settings.menuPad): pick, Apply. Its one key
 -- All of it runs from Eve's own ReceiveTick (on the game thread). The menu's text is set by StellarBladePlayAs's own DLL
 -- (StellarBladePlayAsText, native/playas.c).
-local VERSION = "0.2.0"
+local VERSION = "0.2.1"
 local DIR = "ue4ss/Mods/StellarBladePlayAs/"
 local SCRIPTS = DIR .. "Scripts/"
 local CHOICE, LOG = DIR .. "choice.txt", DIR .. "stellarbladeplayas.log"
@@ -19,6 +19,20 @@ local function log(s)
   local line = string.format("[%s] %s\n", os.date("%H:%M:%S"), s)
   if lg then lg:write(line); lg:flush() end
   print("[StellarBladePlayAs] " .. s .. "\n")
+end
+-- an error that comes back each frame: logged the first time, then at most every ERR_S s with how often it came (a line
+-- each frame, flushed and printed to UE4SS's console, would itself stutter the game)
+local ERR_S, errs = 10, {}
+local function logerr(what, err)
+  local k = what .. tostring(err)
+  local e = errs[k]
+  local now = os.clock()
+  if not e then errs[k] = { n = 0, at = now }; log(what .. ": " .. tostring(err)); return end
+  e.n = e.n + 1
+  if now - e.at >= ERR_S then
+    log(string.format("%s: %s (%d more times in %.0f s)", what, tostring(err), e.n, now - e.at))
+    e.n, e.at = 0, now
+  end
 end
 local function try(f) local ok, r = pcall(f); if ok then return r end end
 local function valid(o) return o ~= nil and try(function() return o:IsValid() end) == true end
@@ -129,14 +143,33 @@ for _, d in ipairs({ { "UP_ARROW", "up" }, { "DOWN_ARROW", "down" }, { "LEFT_ARR
   pcall(RegisterKeyBind, Key[d[1]], function() if menu and menu.state.open then menu.nav[#menu.nav + 1] = d[2] end end)
 end
 
+-- a tick of ours that took SLOW_S or more (a hitch in the game): logged with what took it, at most every ERR_S s
+local SLOW_S, slowAt, slowN = 0.03, -math.huge, 0
+local function slow(t0, t1, t2, t3, t4, t5)
+  if t5 - t0 < SLOW_S then return end
+  slowN = slowN + 1
+  if t5 - slowAt < ERR_S then return end
+  log(string.format("slow tick: %.0f ms (menu %.0f, her look %.0f, its frame %.0f, voice %.0f)%s", (t5 - t0) * 1000,
+    (t1 - t0) * 1000, (t3 - t2) * 1000, (t4 - t3) * 1000, (t5 - t4) * 1000,
+    slowN > 1 and string.format(", %d slow ticks since the last such line", slowN - 1) or ""))
+  slowAt, slowN = t5, 0
+end
 local function tick(c)
   local self = try(function() return c:get() end)
   local a = self and try(function() return self:GetAddress() end)
   if not a then return end
   local now = os.clock()
   if a ~= pawnAddr then
+    -- (another of Eve's Blueprint ticking, not the player's: a scene's or photo mode's copy of her. Taken for a new
+    -- Eve while hers was paused, it made the mod forget what Eve wore; back on hers, the look on her was taken for her
+    -- own, and picking Eve left Tachy's outfit or Scarlet's hair on her, playtest. The player's own only, when the
+    -- game says which)
+    local gs = try(function() return StaticFindObject("/Script/Engine.Default__GameplayStatics") end)
+    local pp = valid(gs) and try(function() return gs:GetPlayerPawn(self, 0) end)
+    local ppa = valid(pp) and try(function() return pp:GetAddress() end)
+    if ppa and ppa ~= a then return end
     -- a death reloads the level: a new Eve ticks, the old one is freed (never touched again)
-    if pawnAddr and now - pawnSeen < 1.0 then return end
+    if not ppa and pawnAddr and now - pawnSeen < 1.0 then return end
     if pawnAddr then log("new Eve (the level reloaded)") end
     pawnAddr, pawn = a, self
     quietUntil = math.max(quietUntil, now + 8)
@@ -147,34 +180,39 @@ local function tick(c)
   for key, p in pairs(pending) do
     pending[key] = nil
     local ok, err = pcall(ACTIONS[p.id])
-    if not ok then log(p.id .. " failed: " .. tostring(err)) end
+    if not ok then logerr(p.id .. " failed", err) end
   end
   if menu then
     local ok, err = pcall(menu.hook_tick)
-    if not ok then log("menu: " .. tostring(err)) end
+    if not ok then logerr("menu", err) end
     ok, err = pcall(menu.tick, pawn)
-    if not ok then log("menu: " .. tostring(err)) end
+    if not ok then logerr("menu", err) end
   end
+  local t1 = os.clock()
   local mesh = try(function() return pawn.Mesh end)
   if not valid(mesh) then return end
   -- (dead: her body a ragdoll; nothing of hers is swapped then, a pick waits till she is up)
   local dead = try(function() return mesh:IsSimulatingPhysics(FName("Bip001-Pelvis")) end) == true
   if dead then quietUntil = math.max(quietUntil, now + 10) end
+  local t2, t3 = os.clock(), nil
   if looks then
     local ok, err = pcall(looks.tick, pawn, mesh, dead)
-    if not ok then log("look: " .. tostring(err)) end
+    if not ok then logerr("look", err) end
+    t3 = os.clock()
     if not dead then
       ok, err = pcall(looks.frame, mesh)
-      if not ok then log("look: " .. tostring(err)) end
+      if not ok then logerr("look", err) end
     end
   end
+  local t4 = os.clock()
   -- (the voice a pick changes waits, as her look does, till she is up: swapped in her death, at once, the
   -- waves her death sounds played left her cues under them and the game froze for good, playtest)
   if not dead or not voiceWho then voiceWho = settings.voice ~= false and settings.who or "eve" end
   if voice then
     local ok, err = pcall(voice.tick, voiceWho)
-    if not ok then log("voice: " .. tostring(err)) end
+    if not ok then logerr("voice", err) end
   end
+  slow(now, t1, t2, t3 or t2, t4, os.clock())
 end
 
 local hooked = false
@@ -183,7 +221,7 @@ local function hook(how)
   if not valid(try(function() return StaticFindObject(TICK_FN) end)) then return false end
   local okh, e = pcall(RegisterHook, TICK_FN, function(c)
     local okt, et = pcall(tick, c)
-    if not okt then log("tick: " .. tostring(et)) end
+    if not okt then logerr("tick", et) end
   end)
   hooked = okh
   log(string.format("tick hook (%s): %s", how, okh and "ok" or tostring(e)))

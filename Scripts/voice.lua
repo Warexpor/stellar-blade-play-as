@@ -66,9 +66,14 @@ M.VOICES = {
     breath = n("vo_Scarlet_groggy_S_%d", 1, 2, 3, 4, 5) },
 }
 
+M.KINDS = {}
+for k in pairs(M.EVE) do M.KINDS[#M.KINDS + 1] = k end
+table.sort(M.KINDS)
 -- st.swapped: wave player address -> { node, path (Eve's wave), ours (its address) }; st.who: whose voice is on
 -- st.vol: Eve's cue path -> its own VolumeMultiplier
-local st = { who = "eve", swapped = {}, next = 0, missing = {}, owed = false, vol = {} }
+-- st.graph: a cue's address -> its wave players (walked once: each look walked every cue's graph and read every wave's
+-- full name, every few seconds)
+local st = { who = "eve", swapped = {}, next = 0, missing = {}, owed = false, vol = {}, graph = {} }
 
 function M.init(c)
   ctx, try, valid = c, c.try, c.valid
@@ -86,9 +91,15 @@ end
 -- (loaded from the pak only when main.lua's may_load says so: a load while the game loads a level waited on it, the
 -- gore mod found, an endless loading screen)
 local function may_load() return not ctx.may_load or ctx.may_load() end
+-- (loads, each a wait on the game thread of 15-30 ms: two a tick, they were a hitch every frame for 10 s after the
+-- level came in, the hair Tachy's strands swing in the same tick hitching with them, playtest. A sweep that loads
+-- anything (st.loaded) is finished in that tick: one wait, as the level comes in or she is picked, none during play)
 local function find(path, load)
   local o = try(function() return StaticFindObject(path) end)
-  if not valid(o) and load and LoadAsset and may_load() then o = try(function() return LoadAsset(path) end) end
+  if not valid(o) and load and LoadAsset and may_load() then
+    st.tried, st.loaded = path, true
+    o = try(function() return LoadAsset(path) end)
+  end
   return valid(o) and o or nil
 end
 -- an object's path from its full name ("SoundWave /Game/...vo_eve_atk_l1_VO.vo_eve_atk_l1_VO")
@@ -138,15 +149,21 @@ end
 -- the other's waves on Eve's cues (again where the game loaded a cue anew): how many players changed now
 -- (only the recordings put on a slot are loaded, and kept by it; one the game lacks is never asked for again: a load
 -- that fails is a synchronous wait on the game thread each time)
-local function apply(v)
+-- (a sweep over all of Eve's cues took 30 ms, a hitch every few seconds: done PER_TICK of her cues in memory a tick,
+-- the next sweep `every` s after the last ended; q: the cue names left of this sweep, by kind)
+M.PER_TICK = 4
+local function apply(v, q)
   local changed, cues = 0, 0
-  for kind, list in pairs(M.EVE) do
+  for _, kind in ipairs(M.KINDS) do
+    local list = q[kind] or {}
     local theirs = {}
     for _, nm in ipairs(v[kind] or {}) do
       local p = wave_path(v.dir, nm)
       if not st.missing[p] then theirs[#theirs + 1] = p end
     end
-    for _, name in ipairs(#theirs > 0 and list or {}) do
+    if #theirs == 0 then q[kind] = {}; list = {} end
+    while #list > 0 and (cues < M.PER_TICK or st.loaded) do
+      local name = table.remove(list, 1)
       local cp = obj_path(name)
       local cue = find(cp, false)
       if cue then
@@ -158,17 +175,25 @@ local function apply(v)
           local want = st.vol[cp] * (tonumber((ctx.settings or {}).voiceVolume) or M.VOLUME)
           if math.abs(cur - want) > 1e-4 then try(function() cue.VolumeMultiplier = want end) end
         end
-        for i, node in ipairs(players(cue)) do
+        local ca = addr(cue)
+        local g = st.graph[ca]
+        if g then for _, node in ipairs(g) do if not valid(node) then g = nil; break end end end
+        if not g then g = players(cue); st.graph[ca] = g end
+        for i, node in ipairs(g) do
           local a = addr(node)
           local cur = try(function() return node.SoundWave end)
+          -- (one of theirs on it already, put there by us: nothing to read)
+          local sw = a and st.swapped[a]
+          if sw and sw.ours and addr(cur) == sw.ours then a = nil end
           -- (one the game lacks: the next of hers instead)
           local p, want
           while a and #theirs > 0 do
             p = theirs[(i - 1) % #theirs + 1]
             if path_of(cur) == p then break end
+            st.tried = nil
             want = find(p, true)
-            -- (not loaded now isn't missing: next time)
-            if want or not may_load() then break end
+            -- (not tried now, nothing may load: not missing)
+            if want or st.tried ~= p then break end
             st.missing[p] = true
             log(p .. " not found")
             for j = #theirs, 1, -1 do if theirs[j] == p then table.remove(theirs, j) end end
@@ -179,7 +204,10 @@ local function apply(v)
               local was = path_of(cur)
               if was then st.swapped[a] = { node = node, path = was } end
             end
-            if st.swapped[a] and try(function() node.SoundWave = want; return true end) then changed = changed + 1 end
+            if st.swapped[a] and try(function() node.SoundWave = want; return true end) then
+              st.swapped[a].ours = addr(want)
+              changed = changed + 1
+            end
           end
         end
       end
@@ -193,14 +221,23 @@ function M.tick(who, every)
   local now = os.clock()
   if who ~= st.who then
     if st.who ~= "eve" then restore("now " .. (who or "eve")) end
-    st.who, st.next = who or "eve", 0
+    st.who, st.next, st.sweep = who or "eve", 0, nil
   elseif st.owed and may_load() then restore("owed")
   end
   local v = M.VOICES[st.who]
-  if not v or now < st.next then return end
-  st.next = now + (every or 3)
-  local changed, cues = apply(v)
-  if changed > 0 then log(string.format("%s's voice on %d recording slot(s) of %d of Eve's cues", st.who, changed, cues)) end
+  if not v then st.sweep = nil; return end
+  if not st.sweep then
+    if now < st.next then return end
+    st.sweep = { q = {}, changed = 0, cues = 0 }
+    for kind, list in pairs(M.EVE) do st.sweep.q[kind] = { table.unpack(list) } end
+  end
+  local w = st.sweep
+  st.loaded = nil
+  local changed, cues = apply(v, w.q)
+  w.changed, w.cues = w.changed + changed, w.cues + cues
+  for _, l in pairs(w.q) do if #l > 0 then return end end
+  st.sweep, st.next = nil, now + (every or 3)
+  if w.changed > 0 then log(string.format("%s's voice on %d recording slot(s) of %d of Eve's cues", st.who, w.changed, w.cues)) end
 end
 function M.off(why) if st.who ~= "eve" then restore(why) end; st.who = "eve" end
 

@@ -6,7 +6,8 @@ return {
   voiceVolume = 1.5,      -- their recordings are quieter than Eve's: her voice cues this much louder while theirs is on
   blade = true,           -- her own blade in place of Eve's sword (false: Eve's sword)
   menuKey = "F4",         -- opens and closes the in-game menu (UE4SS key names: F1-F12, HOME, INS, ...)
-  -- the menu on the controller, all held together (the Gore mod's F3 menu is LB + RB + L3)
+  -- the menu on the controller, all held together: L1 + R1 + R3 on a PlayStation controller, LB + RB + R3 on an Xbox one
+  -- (the shoulder buttons, not the triggers; the Gore mod's F3 menu is L1 + R1 + L3)
   menuPad = { "Gamepad_LeftShoulder", "Gamepad_RightShoulder", "Gamepad_RightThumbstick" },
   padIcons = "playstation", -- the menu's controller button icons: "playstation" or "xbox"
   -- Raven's and Tachy's hair: how hard each strand is pulled back to its shape, and how fast its swing dies down

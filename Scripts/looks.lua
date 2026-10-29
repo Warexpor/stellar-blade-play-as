@@ -44,9 +44,9 @@ local P = "/Game/Art/Character/"
 M.LOOKS = {
   tachy = { label = "Tachy", body = P .. "NPC/CH_NPC_TachyNPC/CH_NPC_TachyNPC_Body.CH_NPC_TachyNPC_Body",
     face = P .. "NPC/CH_NPC_TachyNPC/CH_NPC_TachyNPC_Face_Jali2.CH_NPC_TachyNPC_Face_Jali2", hide = { hair = true },
-    hideMats = { 4, 5 },
+    hideMats = { 4, 5 }, hairMat = "_Hair",
     extras = { { path = P .. "NPC/CH_NPC_TachyNPC/CH_NPC_TachyNPC_Body.CH_NPC_TachyNPC_Body", name = "Tachy's hair", head = true,
-      only = { 4, 5 }, prefix = "Ab_Hair_",
+      only = { 4, 5 }, hairMat = "_Hair", prefix = "Ab_Hair_",
       spring = { "Ab_Hair_KL01", "Ab_Hair_KR01", "Ab_Hair_L1_01", "Ab_Hair_L2_01", "Ab_Hair_L3_01", "Ab_Hair_L4_01", "Ab_Hair_R1_01",
         "Ab_Hair_R2_01", "Ab_Hair_R3_01", "Ab_Hair_R4_01" } } },
     weapon = P .. "Weapon/Sword/CH_W_Sword_02/CH_W_Sword_02.CH_W_Sword_02" },
@@ -88,7 +88,9 @@ M.MAIN = { "Bip001-Head", "Bip001-Neck", "Bip001-Spine", "Bip001-Spine1", "Bip00
 -- shape (1 all of it): Raven's at 3, 14 and 0.8. Each frame (M.frame) a strand found stopped is simulated again at once
 -- (Tachy's, simulated so, stopped on nearly every frame, playtests), what it lost put back first (strands_mend), and
 -- what it looked like and how often it stops is logged
-M.STRANDS = { SPRING = 3000, DAMPING = 100, FAR_CM = 250, HAIR_CH = 6, BODY_CH = 7 }
+-- Their swing is eased in over RAMP_S once they are set going (they jittered at spawn, playtest), and while her head
+-- turns fast (a roll: SPIN_DPS as M.SPRING's) cut down to SPIN_MIN of it, back over a fraction of a second after
+M.STRANDS = { SPRING = 3000, DAMPING = 100, FAR_CM = 250, HAIR_CH = 6, BODY_CH = 7, RAMP_S = 1.0, SPIN_MIN = 0.35 }
 -- Raven's strands touch her body only: capsules on her bones (BODY_CAPS, fitted to CH_P_EVE_11 in its reference
 -- pose: her hips and back across, her thighs and calves along, a ball on each breast, on its own bone so it follows
 -- the jiggle: her front strands went through them, playtest), physics only, of a channel nothing else of hers uses
@@ -121,7 +123,7 @@ M.PIN_IN_CM, M.PIN_OUT_CM = 40, 60
 M.HEAD = "Bip001-Head"
 
 local st = { pawn = nil, who = "eve", blade = true, was = nil, next = 0, failed = {}, found = {}, blades = {}, pinned = {},
-  extras = {}, pins = {}, sockets = {}, ours = {}, oursMesh = {}, turns = {}, settle = {}, mats = nil, hairOn = nil }
+  extras = {}, pins = {}, sockets = {}, fights = {}, ours = {}, oursMesh = {}, turns = {}, settle = {}, skin = {}, mats = nil, hairOn = nil }
 
 function M.init(c)
   ctx, try, valid = c, c.try, c.valid
@@ -153,13 +155,43 @@ local function slots(pawn)
   return out
 end
 
+-- one of the looks' meshes (worn this session, or by name): never kept as what Eve wears. (Found on her when the mod
+-- saw her anew, it was kept, and picking Eve put Tachy's outfit or Scarlet's hair back on her, playtest)
+local OURS_NAMES = {}
+for _, l in pairs(M.LOOKS) do
+  for _, p in ipairs({ l.body, l.face, l.weapon, l.hair and l.hair.mesh }) do OURS_NAMES[p:match("([^.]+)$")] = true end
+end
+local function is_ours(m)
+  if not valid(m) then return false end
+  if st.oursMesh[addr(m)] then return true end
+  return OURS_NAMES[try(function() return m:GetFName():ToString() end) or ""] == true
+end
+-- the last of Eve's own seen on her body, face and hair (and her hair's AnimBP), for the session: what goes back where
+-- one of ours was found in its place
+local good = {}
+local function own_or_good(role, m)
+  if not valid(m) then return m end
+  if not is_ours(m) then good[role] = m; return m end
+  if valid(good[role]) then
+    log(string.format("%s found on her %s as the mod saw her anew: Eve's own %s kept for her instead", tostring(try(function()
+      return m:GetFName():ToString() end)), role, tostring(try(function() return good[role]:GetFName():ToString() end))))
+    return good[role]
+  end
+  log(string.format("%s found on her %s as the mod saw her anew, and none of Eve's own seen yet: it stays on with Eve",
+    tostring(try(function() return m:GetFName():ToString() end)), role))
+  return m
+end
+-- components the mod hid this session (by address): one found hidden already is still put back with Eve
+local hiddenByUs = {}
+
 -- what she wore before (put back by "eve"): her body's and face's meshes, the components it hid
 local function remember(pawn, mesh)
   if st.was and st.was.pawn == addr(pawn) then return end
   local face
   for _, s in ipairs(slots(pawn)) do if s.face and not face then face = s.comp end end
-  st.was = { pawn = addr(pawn), body = try(function() return mesh.SkeletalMesh end),
-    face = face, faceMesh = face and try(function() return face.SkeletalMesh end), hidden = {}, weapons = {}, mats = {} }
+  st.was = { pawn = addr(pawn), body = own_or_good("body", try(function() return mesh.SkeletalMesh end)),
+    face = face, faceMesh = face and own_or_good("face", try(function() return face.SkeletalMesh end)), hidden = {}, weapons = {},
+    mats = {} }
 end
 
 -- a mesh's own materials, by slot (0-based)
@@ -167,6 +199,18 @@ local function own_mats(m)
   local out, i = {}, 0
   try(function() m.Materials:ForEach(function(_, e) out[i] = try(function() return e:get().MaterialInterface end); i = i + 1 end) end)
   return out
+end
+-- the ids of m's materials named with pat, else ids: a mod's mesh in place of hers may order them otherwise
+-- (TachyNaked's body has her hair at 0 and 2, the game's at 4 and 5: her body's static hair showed, the copy none, playtest)
+local function mat_ids(m, pat, ids)
+  if not pat then return ids end
+  local out = {}
+  for k, mt in pairs(own_mats(m)) do
+    local n = valid(mt) and try(function() return mt:GetFName():ToString() end)
+    if n and n:find(pat, 1, true) then out[#out + 1] = k end
+  end
+  table.sort(out)
+  return #out > 0 and out or ids
 end
 local function addrs(l) local s = {} for _, x in pairs(l) do local a = addr(x); if a then s[a] = true end end return s end
 -- a material of one of the looks' meshes, or an instance the game made of one (its parents), and not one of keep (the
@@ -202,8 +246,11 @@ end
 -- the materials the game gave it are what she wears now, kept for restore. A slot still holding one of ours (the game
 -- left it, or made an instance of it) takes the material kept for that slot if the mesh is the one kept, else the new
 -- mesh's own: the kept ones are another mesh's by slot number (back to Eve, her outfit wore the first one's, playtest)
-local function regear(c, cur)
+local function regear(c, cur, role)
   local w = st.was.mats[addr(c)]
+  -- (one of ours: not something the game put on her; what was kept stays)
+  if is_ours(cur) then return w and w.mesh or good[role] or cur end
+  if role then good[role] = cur end
   local n = try(function() return c:GetNumMaterials() end) or 0
   local own = own_mats(cur)
   local keep = addrs(own)
@@ -263,10 +310,117 @@ local function settle()
   if st.settleTicks >= 10 then st.settle, st.settleTicks = {}, nil end
 end
 
+-- a face's skin lit as Eve's: Tachy's and Raven's heads are instances of the game's skin material (MA_SKIN) without the
+-- switch Eve's head turns on (isPcChar, a static switch: not settable at runtime), and in game they looked dim and
+-- grey next to her (Nexus report). Each of their slots on that material gets a dynamic instance of Eve's own head
+-- material (the first non-dynamic instance under what her face wore) with all their parameters (textures, scalars,
+-- colours) on it; what Eve's sets and theirs doesn't (her blood mask, her micro normal) stays hers. Scarlet's head is
+-- on the NPC skin material and looks right: left as it is
+M.SKIN = "MA_Skin_EVE"
+M.EVE_HEAD = "/Game/Art/Character/PC/CH_P_EVE_Head/Materials/MI_EVE_Head_V02_Jali.MI_EVE_Head_V02_Jali"
+local function cls_name(o) return try(function() return o:GetClass():GetFName():ToString() end) or "" end
+-- mt's chain of parents, mt first
+local function chain(mt)
+  local out = {}
+  for _ = 1, 8 do
+    if not valid(mt) then break end
+    out[#out + 1] = mt
+    mt = try(function() return mt.Parent end)
+  end
+  return out
+end
+local function skin_of(mt)
+  local ch = chain(mt)
+  return #ch > 0 and try(function() return ch[#ch]:GetFName():ToString() end) == M.SKIN
+end
+-- Eve's head material from what her face wore (st.was.mats of c), else the game's by path
+local function eve_head(c)
+  local w = st.was and st.was.mats[addr(c)]
+  for _, mt in pairs(w and w.mats or {}) do
+    if skin_of(mt) and not ours(mt) then
+      for _, p in ipairs(chain(mt)) do if cls_name(p) ~= "MaterialInstanceDynamic" then return p end end
+    end
+  end
+  return asset(M.EVE_HEAD)
+end
+-- the global parameters of mi (a material instance) onto mid
+local function copy_params(mi, mid)
+  local n = 0
+  local function each(list, set)
+    try(function() mi[list]:ForEach(function(_, e)
+      local v = e:get()
+      local name = try(function() return v.ParameterInfo.Name end)
+      local assoc = try(function() return v.ParameterInfo.Association end)
+      if name and (assoc == nil or assoc == 2) and set(name, v) then n = n + 1 end
+    end) end)
+  end
+  each("TextureParameterValues", function(name, v)
+    local t = try(function() return v.ParameterValue end)
+    return valid(t) and try(function() mid:SetTextureParameterValue(name, t); return true end)
+  end)
+  each("ScalarParameterValues", function(name, v)
+    local x = try(function() return v.ParameterValue end)
+    return x and try(function() mid:SetScalarParameterValue(name, x); return true end)
+  end)
+  each("VectorParameterValues", function(name, v)
+    local x = try(function() local c = v.ParameterValue; return { R = c.R, G = c.G, B = c.B, A = c.A } end)
+    return x and try(function() mid:SetVectorParameterValue(name, x); return true end)
+  end)
+  return n
+end
+-- the face's skin slots (own: the face mesh's own materials) as Eve's (above), kept in st.skin; again where the game
+-- put the mesh's own back since. A line for the log the first time
+local skinSlots = {} -- (a face mesh's address -> its slots on MA_SKIN, Eve's own head's left out)
+local function pc_skin(c, m, out)
+  local ma = addr(m)
+  if not ma then return end
+  local own = own_mats(m)
+  if not skinSlots[ma] then
+    local l = {}
+    for k, mt in pairs(own) do
+      if skin_of(mt) and try(function() return mt:GetFName():ToString() end) ~= M.EVE_HEAD:match("([^.]+)$") then l[#l + 1] = k end
+    end
+    skinSlots[ma] = l
+  end
+  local base
+  for _, k in ipairs(skinSlots[ma]) do
+    local key = tostring(addr(c)) .. "#" .. k
+    local s = st.skin[key]
+    -- (on it, or under a dynamic instance the game made of it)
+    local on = false
+    if s and valid(s.mid) then
+      for _, p in ipairs(chain(try(function() return c:GetMaterial(k) end))) do if addr(p) == addr(s.mid) then on = true; break end end
+    end
+    if s and valid(s.mid) and not on then try(function() c:SetMaterial(k, s.mid) end)
+    elseif not on then
+      base = base or eve_head(c)
+      local mid = base and try(function() return c:CreateDynamicMaterialInstance(k, base, FName("None")) end)
+      if valid(mid) then
+        st.ours[addr(mid)] = true
+        local n = copy_params(own[k], mid)
+        st.skin[key] = { mid = mid }
+        out[#out + 1] = string.format("its skin (slot %d) lit as Eve's (%d of its parameters on her head's material)", k, n)
+      elseif not st.skinSaid then
+        st.skinSaid = true
+        out[#out + 1] = "its skin NOT lit as Eve's (" .. (base and "no dynamic material made" or "her head's material not found") .. ")"
+      end
+    end
+  end
+end
+
 local function hide(c, body)
   if not valid(c) or addr(c) == addr(body) then return end
-  if try(function() return c:IsVisible() end) ~= true then return end
+  local a = addr(c)
+  if try(function() return c:IsVisible() end) ~= true then
+    -- (hidden by the mod before it saw her anew: still shown again with Eve)
+    if hiddenByUs[a] and not st.was.hiddenSet then st.was.hiddenSet = {} end
+    if hiddenByUs[a] and not st.was.hiddenSet[a] then st.was.hiddenSet[a] = true; st.was.hidden[#st.was.hidden + 1] = c end
+    return
+  end
   try(function() c:SetVisibility(false, false) end)
+  hiddenByUs[a] = true
+  st.was.hiddenSet = st.was.hiddenSet or {}
+  st.was.hiddenSet[a] = true
   st.was.hidden[#st.was.hidden + 1] = c
 end
 
@@ -293,12 +447,15 @@ function M.inverse(t)
   return { Rotation = q, Translation = { X = -p.X, Y = -p.Y, Z = -p.Z }, Scale3D = { X = 1, Y = 1, Z = 1 } }
 end
 local function vec_of(f) return try(function() local v = f(); return { X = v.X, Y = v.Y, Z = v.Z } end) end
-local function hair_sim(x, on)
+-- (on: its swing eased in from none over STRANDS.RAMP_S, strands_frame; again: one stopped by something else, set
+-- going again at the weight it had)
+local function hair_sim(x, on, again)
   local c, set = x.comp, cfg()
-  if on then x.simAt = os.clock() end
+  if on and not again then x.simAt, x.bw = os.clock(), 0 end
   for _, r in ipairs(x.sim) do try(function() c:SetAllBodiesBelowSimulatePhysics(FName(r), on, false) end) end
-  if on and x.blend then
-    for _, r in ipairs(x.sim) do try(function() c:SetAllBodiesBelowPhysicsBlendWeight(FName(r), x.blend, false, false) end) end
+  if on then
+    for _, r in ipairs(x.sim) do try(function() c:SetAllBodiesBelowPhysicsBlendWeight(FName(r), x.bw or 0, false, false) end) end
+    x.bwSet = x.bw or 0
   end
   if on then
     try(function() c:SetAllMotorsAngularPositionDrive(true, true, false) end)
@@ -362,13 +519,21 @@ body_caps = function(pawn, mesh)
   end
   return out
 end
--- Tachy's strands swung in Lua (x.spring: the strands' roots), each bone a point: it lags behind the head, falls a
--- little (G), is pulled back toward where the made shape puts it from the bone above (STIFF a 60th of a second),
--- keeps its length, and is pushed out of balls on her neck and chest (BALLS: her mesh's bones), the bones turned to
--- point along. Physics never held: her strands' bodies, on Eve's mesh, on a copy at her head, on an actor of its own,
--- stopped on nearly every frame with nothing of them lost (playtests), by something of the game's. A jump of more than
--- JUMP_CM in a frame (a teleport) puts them back as made
-M.SPRING = { STIFF = 0.12, DAMP = 0.1, G = -400, JUMP_CM = 100,
+-- Tachy's strands swung in Lua (x.spring: the strands' roots), each bone a point in her hair copy's own space (at her
+-- head): its swing kept from the last frame (DAMP lost a 60th of a second), pulled back toward where the made shape
+-- puts it from the bone above (STIFF a 60th of a second), falling (G), keeping its length, no further than MAX_DEG
+-- from its made direction, pushed out of her body (M.BODY_CAPS, Raven's hair's capsules, and BALLS; PAD cm off them),
+-- and the bones turned to point along, posed in that space. Physics never held: her strands' bodies, on Eve's mesh,
+-- on a copy at her head, on an actor of its own, stopped on nearly every frame with nothing of them lost (playtests).
+-- Her head's moves reach them as a world-space swing would feel them: its turn (up to TURN_DEG a frame) and its
+-- speeding up (its speed smoothed over ACC_S s, at most ACC_MAX cm/s2), so running straight on doesn't swing them.
+-- (Simulated in the world, on her head's place each frame, they swung hard now and then running straight on: a
+-- frame's place read early or late was a kick, and they went through her back, two balls on her neck and chest
+-- all they touched, playtest.) A jump of more than JUMP_CM in a frame (a teleport) puts them back as made. Every
+-- LOG_S s after they are set going (5 times), the log says how far they swung, for tuning.
+-- (SPIN_DPS: Raven's strands' fast head turn, M.STRANDS)
+M.SPRING = { STIFF = 0.12, DAMP = 0.1, G = -400, JUMP_CM = 100, SPIN_DPS = { 250, 700 }, MAX_DEG = 60, PAD = 1.5,
+  TURN_DEG = 12, ACC_S = 0.1, ACC_MAX = 2500, LOG_S = 8,
   BALLS = { { bone = "Bip001-Neck", r = 5.5 }, { bone = "Bip001-Spine2", r = 11 } } }
 local function v3(a) return { X = a.X, Y = a.Y, Z = a.Z } end
 local function vadd(a, b) return { X = a.X + b.X, Y = a.Y + b.Y, Z = a.Z + b.Z } end
@@ -390,6 +555,15 @@ local function qfrom(a, b)
   local l = math.sqrt(q.X ^ 2 + q.Y ^ 2 + q.Z ^ 2 + q.W ^ 2)
   return { X = q.X / l, Y = q.Y / l, Z = q.Z / l, W = q.W / l }
 end
+-- how fast q turned since the last frame's x.spinQ (degrees a second), kept for the next
+local function spin(x, q, dt)
+  local w = x.spinQ
+  x.spinQ = q
+  if not w then return 0 end
+  local d = math.min(1, math.abs(q.X * w.X + q.Y * w.Y + q.Z * w.Z + q.W * w.W))
+  return math.deg(2 * math.acos(d)) / math.max(dt, 1e-3)
+end
+local function ramp(v, a, b) return math.min(1, math.max(0, (v - a) / (b - a))) end
 -- its strand bones (the roots' and under them, parents first), each made place and turn in the component
 spring_init = function(x)
   local c, out, at = x.comp, {}, {}
@@ -442,64 +616,159 @@ local function world_of(c)
     return { q = { X = t.Rotation.X, Y = t.Rotation.Y, Z = t.Rotation.Z, W = t.Rotation.W }, p = v3(t.Translation) }
   end)
 end
+local function qinv(q) return { X = -q.X, Y = -q.Y, Z = -q.Z, W = q.W } end
+-- q's turn, no more than max radians of it
+local function qcap(q, max)
+  if q.W < 0 then q = { X = -q.X, Y = -q.Y, Z = -q.Z, W = -q.W } end
+  local a = 2 * math.acos(math.min(1, q.W))
+  if a <= max then return q, false end
+  local s = math.sqrt(math.max(1e-12, 1 - q.W * q.W))
+  local h = max / 2
+  return { X = q.X / s * math.sin(h), Y = q.Y / s * math.sin(h), Z = q.Z / s * math.sin(h), W = math.cos(h) }, true
+end
 local function spring_frame(x, mesh)
   local c, S = x.comp, M.SPRING
   if not (x.bones and #x.bones > 0) then return end
   local C = world_of(c)
   if not C then return end
   local now = os.clock()
-  local dt = math.min(math.max(now - (x.springAt or now), 1 / 240), 1 / 30)
-  x.springAt = now
-  local function made(e) return vadd(qrot(C.q, e.p), C.p) end
-  local first = not x.pts
-  if not first then
-    local r = x.bones[1]
-    if vlen(vsub(made(r), x.pts[r.name].p)) > S.JUMP_CM then first = true end
-  end
+  -- (her head where it was a moment ago: the same frame ticked again, nothing to do)
+  local L = x.last
+  if L and now - L.at < 1 / 200 and vlen(vsub(C.p, L.p)) < 1e-3 and math.abs(C.q.X - L.q.X) + math.abs(C.q.Y - L.q.Y)
+    + math.abs(C.q.Z - L.q.Z) + math.abs(C.q.W - L.q.W) < 1e-6 then return end
+  local dt = L and math.min(math.max(now - L.at, 1 / 240), 1 / 30) or 1 / 60
+  local first = not x.pts or not L or vlen(vsub(C.p, L.p)) > S.JUMP_CM
+  local stat = x.stat
   if first then
-    x.pts = {}
-    for _, e in ipairs(x.bones) do local w = made(e); x.pts[e.name] = { p = w, was = w } end
+    x.pts, x.vel = {}, nil
+    for _, e in ipairs(x.bones) do x.pts[e.name] = { p = v3(e.p), was = v3(e.p) } end
+    -- (her head's turn about where its strands start: the component's own origin is far from her head)
+    local sum, n = { X = 0, Y = 0, Z = 0 }, 0
+    for _, e in ipairs(x.bones) do if not e.up then sum, n = vadd(sum, e.p), n + 1 end end
+    x.pivot = vmul(sum, 1 / math.max(1, n))
+    x.stat = x.stat or { at = now, n = 0, dev = 0, devMax = 0, tips = 0, kicks = 0, turns = 0, capped = 0 }
+    stat = x.stat
   end
+  local qi = qinv(C.q)
+  -- (its turn since the last frame, undone on its points: they keep their way in the world)
+  local turn = { X = 0, Y = 0, Z = 0, W = 1 }
+  if L and not first then
+    local capped
+    turn, capped = qcap(qmul(qi, L.q), math.rad(S.TURN_DEG))
+    if capped and stat then stat.turns = stat.turns + 1 end
+  end
+  -- (its speeding up, smoothed: felt as a push the other way)
+  local acc = { X = 0, Y = 0, Z = 0 }
+  if L and not first then
+    local v = vmul(vsub(C.p, L.p), 1 / dt)
+    local vs = x.vel or v
+    local nv = vadd(vs, vmul(vsub(v, vs), 1 - math.exp(-dt / S.ACC_S)))
+    acc = vmul(vsub(nv, vs), 1 / dt)
+    local al = vlen(acc)
+    if al > S.ACC_MAX then
+      acc = vmul(acc, S.ACC_MAX / al)
+      if stat then stat.kicks = stat.kicks + 1 end
+    end
+    x.vel = nv
+  end
+  x.last = { at = now, p = C.p, q = C.q }
+  local g = qrot(qi, { X = -acc.X, Y = -acc.Y, Z = S.G - acc.Z })
+  -- (her body in its space: a ball's a point, a capsule's its axis)
+  local function here(w) return qrot(qi, vsub(w, C.p)) end
   local balls = {}
   for _, b in ipairs(S.BALLS) do
     local p = try(function() return v3(mesh:GetSocketLocation(FName(b.bone))) end)
-    if p then balls[#balls + 1] = { p = p, r = b.r } end
+    if p then p = here(p); balls[#balls + 1] = { a = p, b = p, r = b.r + S.PAD } end
+  end
+  for _, b in ipairs(M.BODY_CAPS) do
+    local t = try(function()
+      local v = mesh:GetSocketTransform(FName(b.bone), 0)
+      return { q = { X = v.Rotation.X, Y = v.Rotation.Y, Z = v.Rotation.Z, W = v.Rotation.W }, p = v3(v.Translation) }
+    end)
+    if t then
+      local mid = vadd(t.p, qrot(t.q, { X = b.at[1], Y = b.at[2], Z = b.at[3] }))
+      local ax = qrot(qmul(t.q, { X = b.q[1], Y = b.q[2], Z = b.q[3], W = b.q[4] }), { X = 0, Y = 0, Z = math.max(0, b.h - b.r) })
+      balls[#balls + 1] = { a = here(vsub(mid, ax)), b = here(vadd(mid, ax)), r = b.r + S.PAD }
+    end
   end
   local k = 1 - (1 - S.STIFF) ^ (dt * 60)
   local keep = (1 - S.DAMP) ^ (dt * 60)
+  local cosMax, sinMax = math.cos(math.rad(S.MAX_DEG)), math.sin(math.rad(S.MAX_DEG))
   for _, e in ipairs(x.bones) do
     local pt = x.pts[e.name]
     if not e.up then
-      pt.was, pt.p = pt.p, made(e)
+      pt.was, pt.p = pt.p, v3(e.p)
     else
+      local was, cur = vadd(x.pivot, qrot(turn, vsub(pt.was, x.pivot))), vadd(x.pivot, qrot(turn, vsub(pt.p, x.pivot)))
       local up = x.pts[e.up.name].p
-      local p = vadd(vadd(pt.p, vmul(vsub(pt.p, pt.was), keep)), { X = 0, Y = 0, Z = S.G * dt * dt })
-      local goal = vadd(up, qrot(C.q, vsub(e.p, e.up.p)))
-      p = vadd(p, vmul(vsub(goal, p), k))
-      for _, b in ipairs(balls) do
-        local d = vsub(p, b.p)
-        local l = vlen(d)
-        if l < b.r and l > 1e-4 then p = vadd(b.p, vmul(d, b.r / l)) end
+      local p = vadd(vadd(cur, vmul(vsub(cur, was), keep)), vmul(g, dt * dt))
+      local made = vsub(e.p, e.up.p)
+      p = vadd(p, vmul(vsub(vadd(up, made), p), k))
+      -- (no further than MAX_DEG from its made direction)
+      local d, ml = vsub(p, up), vlen(made)
+      local dl = vlen(d)
+      if dl > 1e-4 and ml > 1e-4 then
+        local dn, mn = vmul(d, 1 / dl), vmul(made, 1 / ml)
+        local cs = dn.X * mn.X + dn.Y * mn.Y + dn.Z * mn.Z
+        if cs < cosMax then
+          local perp = vsub(dn, vmul(mn, cs))
+          local pl = vlen(perp)
+          if pl > 1e-4 then
+            p = vadd(up, vmul(vadd(vmul(mn, cosMax), vmul(perp, sinMax / pl)), dl))
+            if stat then stat.capped = stat.capped + 1 end
+          end
+        end
       end
-      local d = vsub(p, up)
-      local l = vlen(d)
-      if l > 1e-4 then p = vadd(up, vmul(d, e.len / l)) end
-      pt.was, pt.p = pt.p, p
+      for _, b in ipairs(balls) do
+        -- (the nearest point on its axis)
+        local ab = vsub(b.b, b.a)
+        local L2 = ab.X * ab.X + ab.Y * ab.Y + ab.Z * ab.Z
+        local q = b.a
+        if L2 > 1e-6 then
+          local ap = vsub(p, b.a)
+          q = vadd(b.a, vmul(ab, math.min(1, math.max(0, (ap.X * ab.X + ap.Y * ab.Y + ap.Z * ab.Z) / L2))))
+        end
+        local dd = vsub(p, q)
+        local l = vlen(dd)
+        if l < b.r and l > 1e-4 then p = vadd(q, vmul(dd, b.r / l)) end
+      end
+      d = vsub(p, up)
+      dl = vlen(d)
+      if dl > 1e-4 then p = vadd(up, vmul(d, e.len / dl)) end
+      pt.was, pt.p = cur, p
     end
   end
-  -- (each bone turned so its made direction to the bone below points at that bone now; a tip as the bone above it)
-  for _, e in ipairs(x.bones) do
-    local made_q = qmul(C.q, e.q)
-    local turn
-    if e.kid then
-      turn = qfrom(qrot(C.q, vsub(e.kid.p, e.p)), vsub(x.pts[e.kid.name].p, x.pts[e.name].p))
-    else
-      turn = e.up and x.pts[e.up.name].turn or { X = 0, Y = 0, Z = 0, W = 1 }
+  -- (for the log: how far its tips are from the made shape)
+  if stat and not stat.said then
+    stat.n = stat.n + 1
+    for _, e in ipairs(x.bones) do
+      if not e.kid then
+        local d = vlen(vsub(x.pts[e.name].p, e.p))
+        stat.dev, stat.devMax, stat.tips = stat.dev + d, math.max(stat.devMax, d), stat.tips + 1
+      end
     end
-    x.pts[e.name].turn = turn
-    local q = qmul(turn, made_q)
-    local p = x.pts[e.name].p
-    try(function() c:SetBoneTransformByName(FName(e.name), { Rotation = q, Translation = p, Scale3D = { X = 1, Y = 1, Z = 1 } }, 0) end)
+    if now - stat.at >= S.LOG_S then
+      stat.lines = (stat.lines or 0) + 1
+      stat.said = stat.lines >= 5
+      log(string.format("%s: in %d frames its tips swung %.1f cm from the made shape on average (%.1f at most); "
+        .. "her head's speeding up held to %d cm/s2 on %d frames, its turn to %d degrees on %d, links held at %d degrees %.1f a frame",
+        x.name, stat.n, stat.dev / math.max(1, stat.tips), stat.devMax, S.ACC_MAX, stat.kicks, S.TURN_DEG, stat.turns,
+        S.MAX_DEG, stat.capped / math.max(1, stat.n)))
+      stat.at, stat.n, stat.dev, stat.devMax, stat.tips, stat.kicks, stat.turns, stat.capped = now, 0, 0, 0, 0, 0, 0, 0
+    end
+  end
+  -- (each bone turned so its made direction to the bone below points at that bone now; a tip as the bone above it;
+  -- posed in its component's space, so they ride her head exactly whenever its place is updated)
+  for _, e in ipairs(x.bones) do
+    local tq
+    if e.kid then
+      tq = qfrom(vsub(e.kid.p, e.p), vsub(x.pts[e.kid.name].p, x.pts[e.name].p))
+    else
+      tq = e.up and x.pts[e.up.name].turn or { X = 0, Y = 0, Z = 0, W = 1 }
+    end
+    x.pts[e.name].turn = tq
+    local q, p = qmul(tq, e.q), x.pts[e.name].p
+    try(function() c:SetBoneTransformByName(FName(e.name), { Rotation = q, Translation = p, Scale3D = { X = 1, Y = 1, Z = 1 } }, 1) end)
   end
 end
 
@@ -593,9 +862,18 @@ local function put_hair(c, h, out)
   local m = asset(h.mesh)
   if not m then return end
   local cur = try(function() return c.SkeletalMesh end)
-  if addr(cur) == addr(m) then return end
+  if addr(cur) == addr(m) and st.was.hair then return end
+  if addr(cur) == addr(m) then
+    -- (hers on already as the mod saw her anew: Eve's own hair and AnimBP, as last seen, are what go back)
+    st.was.hair = { comp = c, cls = good.hairCls, vis = true }
+    st.was.mats[addr(c)] = { comp = c, mats = {}, n = 0, mesh = good.hair }
+    out[#out + 1] = "(her hair on already: Eve's own " .. tostring(valid(good.hair) and try(function() return good.hair:GetFName():ToString() end)
+      or "NOT known: it stays on with Eve") .. " kept for her)"
+    return
+  end
+  if valid(cur) and not is_ours(cur) then good.hair, good.hairCls = cur, try(function() return c.AnimClass end) end
   if st.was.mats[addr(c)] and valid(cur) then
-    regear(c, cur)
+    regear(c, cur, "hair")
     out[#out + 1] = "(the game put " .. tostring(try(function() return cur:GetFName():ToString() end)) .. " on her hair: hers for Eve)"
   end
   local vis = st.was.hair and st.was.hair.vis
@@ -630,6 +908,33 @@ local function post_off()
   if p and valid(p.mesh) then try(function() p.mesh.PostProcessAnimBlueprint = p.was end) end
 end
 
+-- another mod putting its mesh on one of her components over and over (FIGHT_N times in FIGHT_S s): each swap back
+-- remakes the component (a hitch), so it is left to the other for HOLD_S s (logged), then taken back once
+M.FIGHT_N, M.FIGHT_S, M.HOLD_S = 4, 30, 60
+local function fighting(c, cur)
+  local a = addr(c)
+  if not a then return false end
+  local f = st.fights[a] or { at = {} }
+  st.fights[a] = f
+  local now = os.clock()
+  if f.hold then
+    if now < f.hold then return true end
+    f.hold, f.at = nil, {}
+  end
+  local n = {}
+  for _, t in ipairs(f.at) do if now - t < M.FIGHT_S then n[#n + 1] = t end end
+  n[#n + 1] = now
+  f.at = n
+  if #n >= M.FIGHT_N then
+    f.hold = now + M.HOLD_S
+    log(string.format("%s was put on her %d times in %d s by something else (another outfit or character mod?): left on for %d s, "
+      .. "swapping it back each time stutters the game", tostring(try(function() return cur:GetFName():ToString() end)),
+      #n, M.FIGHT_S, M.HOLD_S))
+    return true
+  end
+  return false
+end
+
 -- the look on her (again: anything the game put back). Returns a line for the log, or nil when all was in place
 local function apply(pawn, mesh, look)
   local out = {}
@@ -649,9 +954,9 @@ local function apply(pawn, mesh, look)
   local fresh = not (st.was and st.was.pawn == addr(pawn))
   remember(pawn, mesh)
   local cur = try(function() return mesh.SkeletalMesh end)
-  if addr(cur) ~= addr(body) then
+  if addr(cur) ~= addr(body) and not (not fresh and valid(cur) and fighting(mesh, cur)) then
     if not fresh and valid(cur) then
-      st.was.body = regear(mesh, cur)
+      st.was.body = regear(mesh, cur, "body")
       out[#out + 1] = "(the game put " .. tostring(try(function() return cur:GetFName():ToString() end)) .. " on her: hers for Eve)"
     end
     post_on(body, look, out)
@@ -662,9 +967,10 @@ local function apply(pawn, mesh, look)
     out[#out + 1] = "body " .. look.body:match("([^/.]+)$")
   end
   -- (her own hair's sections on her body hidden: again once the game's mesh came and went)
-  if look.hideMats and not hidden_mats(mesh, look.hideMats) then
-    local ok = sections(mesh, look.hideMats, false)
-    out[#out + 1] = (ok and "its hair's sections hidden (" or "its hair's sections NOT hidden (") .. table.concat(look.hideMats, ", ") .. ")"
+  local hm = look.hideMats and mat_ids(body, look.hairMat, look.hideMats)
+  if hm and addr(try(function() return mesh.SkeletalMesh end)) == addr(body) and not hidden_mats(mesh, hm) then
+    local ok = sections(mesh, hm, false)
+    out[#out + 1] = (ok and "its hair's sections hidden (" or "its hair's sections NOT hidden (") .. table.concat(hm, ", ") .. ")"
   end
   for _, s in ipairs(slots(pawn)) do
     if s.face then
@@ -672,11 +978,12 @@ local function apply(pawn, mesh, look)
       elseif look.face then
         local f = asset(look.face)
         local fc = try(function() return s.comp.SkeletalMesh end)
-        if f and addr(fc) ~= addr(f) then
-          if not fresh and valid(fc) and addr(s.comp) == addr(st.was.face) then st.was.faceMesh = regear(s.comp, fc) end
+        if f and addr(fc) ~= addr(f) and not (not fresh and valid(fc) and fighting(s.comp, fc)) then
+          if not fresh and valid(fc) and addr(s.comp) == addr(st.was.face) then st.was.faceMesh = regear(s.comp, fc, "face") end
           wear(s.comp, f)
           out[#out + 1] = "face " .. look.face:match("([^/.]+)$")
         end
+        if f and addr(try(function() return s.comp.SkeletalMesh end)) == addr(f) then pc_skin(s.comp, f, out) end
       end
     elseif s.slot == M.HAIR1 and look.hair then
       put_hair(s.comp, look.hair, out)
@@ -704,8 +1011,9 @@ local function apply(pawn, mesh, look)
     if valid(c) and mesh_name(c) == M.PIN and not st.pins[addr(c)] then
       st.pins[addr(c)] = c
       st.was.pins = st.was.pins or {}
-      st.was.pins[#st.was.pins + 1] = { comp = c, hid = try(function() return c.bHiddenInGame end) == true }
+      st.was.pins[#st.was.pins + 1] = { comp = c, hid = not hiddenByUs[addr(c)] and try(function() return c.bHiddenInGame end) == true }
       try(function() c:SetHiddenInGame(true, false) end)
+      hiddenByUs[addr(c)] = true
       out[#out + 1] = "her hairpin hidden"
     end
   end) end)
@@ -741,7 +1049,7 @@ local function apply(pawn, mesh, look)
         if e.only then
           local hid = {}
           local keep = {}
-          for _, k in ipairs(e.only) do keep[k] = true end
+          for _, k in ipairs(mat_ids(m, e.hairMat, e.only)) do keep[k] = true end
           for k in pairs(own_mats(m)) do if not keep[k] then hid[#hid + 1] = k end end
           table.sort(hid)
           if #hid > 0 and not sections(c, hid, false) then log(x.name .. ": its other sections NOT hidden") end
@@ -838,6 +1146,25 @@ local function strands_mend(x)
   for _, b in ipairs(x.term or {}) do try(function() c:TermBodiesBelow(FName(b)) end) end
   return out
 end
+-- each frame: how much of its simulated swing shows (x.blend, none: all), eased in after it was set going and cut down
+-- while her head turns fast (M.STRANDS)
+local function strands_blend(x)
+  local C = world_of(x.comp)
+  if not C then return end
+  local now = os.clock()
+  local dt = math.min(math.max(now - (x.bwAt or now), 1 / 240), 1 / 15)
+  x.bwAt = now
+  local S = M.SPRING.SPIN_DPS
+  local want = (x.blend or 1) * ramp(now - (x.simAt or now), 0, M.STRANDS.RAMP_S)
+    * (1 - ramp(spin(x, C.q, dt), S[1], S[2]) * (1 - M.STRANDS.SPIN_MIN))
+  local bw = x.bw or 0
+  if want < bw then bw = want else bw = bw + (want - bw) * math.min(1, dt * 4) end
+  x.bw = bw
+  if math.abs(bw - (x.bwSet or -1)) > 0.02 or (want == 0 and bw ~= x.bwSet) then
+    x.bwSet = bw
+    for _, r in ipairs(x.sim) do try(function() x.comp:SetAllBodiesBelowPhysicsBlendWeight(FName(r), bw, false, false) end) end
+  end
+end
 -- each frame: a strand stopped by something else mended and simulated again at once, before it shows hanging as
 -- made. Logged: the first stop (what it had lost, how it looked), and STOPS_S s on how many frames it stopped in
 M.STOPS_S = 5
@@ -866,8 +1193,9 @@ local function strands_frame()
           x.saidLost = true
           log(string.format("%s: stopped again, %s: mended", x.name, table.concat(lost, ", ")))
         end
-        hair_sim(x, true)
+        hair_sim(x, true, true)
       end
+      strands_blend(x)
       if x.stopAt and not x.saidStops and os.clock() - x.stopAt >= M.STOPS_S then
         x.saidStops = true
         local f = x.frames - x.stopFrame + 1
@@ -910,6 +1238,7 @@ end
 -- back as she was
 local function restore(why)
   drop_extras()
+  st.skin, st.fights = {}, {}
   post_off()
   local w = st.was
   st.was = nil
@@ -941,8 +1270,10 @@ local function restore(why)
     if not w.hair.vis then try(function() w.hair.comp:SetVisibility(false, false) end) end
   end
   if valid(w.face) and valid(w.faceMesh) then unwear(w.face, w.faceMesh) end
-  for _, c in ipairs(w.hidden) do if valid(c) then try(function() c:SetVisibility(true, false) end) end end
-  for _, x in ipairs(w.pins or {}) do if valid(x.comp) then try(function() x.comp:SetHiddenInGame(x.hid, false) end) end end
+  for _, c in ipairs(w.hidden) do if valid(c) then hiddenByUs[addr(c)] = nil; try(function() c:SetVisibility(true, false) end) end end
+  for _, x in ipairs(w.pins or {}) do
+    if valid(x.comp) then hiddenByUs[addr(x.comp)] = nil; try(function() x.comp:SetHiddenInGame(x.hid, false) end) end
+  end
   st.pins, st.turns = {}, {}
   -- (her sword back where ours still is: one the game swapped meanwhile stays the game's)
   for _, x in ipairs(w.weapons) do
@@ -964,7 +1295,7 @@ function M.tick(pawn, mesh, dead)
   if addr(pawn) ~= addr(st.pawn) then
     -- a new Eve: what was hidden went with the old one
     st.pawn, st.was, st.extras, st.blades, st.pinned, st.listed, st.pins, st.sockets, st.cut = pawn, nil, {}, {}, {}, nil, {}, {}, nil
-    st.turns, st.settle, st.settleTicks = {}, {}, nil
+    st.turns, st.settle, st.settleTicks, st.skin, st.fights = {}, {}, nil, {}, {}
   end
   settle()
   -- (a pick made while she is dead waits till she is up again)
@@ -1029,7 +1360,7 @@ function M.current() return st.who end
 -- the level reloaded: nothing of the old Eve touched
 function M.forget()
   st.pawn, st.was, st.extras, st.blades, st.pinned, st.listed, st.pins, st.sockets, st.cut = nil, nil, {}, {}, {}, nil, {}, {}, nil
-  st.turns, st.settle, st.settleTicks = {}, {}, nil
+  st.turns, st.settle, st.settleTicks, st.skin, st.fights = {}, {}, nil, {}, {}
 end
 
 M._state = function() return st end

@@ -27,6 +27,14 @@ local function asset(path)
 end
 local P = "/Game/Art/Character/"
 local tBody = asset(P .. "NPC/CH_NPC_TachyNPC/CH_NPC_TachyNPC_Body.CH_NPC_TachyNPC_Body")
+-- (as another mod's body in its place has them, TachyNaked's: her hair at 0 and 2, not the game's 4 and 5)
+do
+  local l = {}
+  for i, n in ipairs({ "MI_CH_M_NA_21_Hair_New", "MI_Naked_Body", "MI_CH_M_NA_21_Hair_New2", "MI_Naked_Eyes", "MI_Naked_Feet" }) do
+    l[i] = { MaterialInterface = F.obj(n, "MaterialInstanceConstant") }
+  end
+  tBody.Materials, tBody.mats = { ForEach = function(_, f) for i, x in ipairs(l) do f(i, { get = function() return x end }) end end }, l
+end
 local tFace = asset(P .. "NPC/CH_NPC_TachyNPC/CH_NPC_TachyNPC_Face_Jali2.CH_NPC_TachyNPC_Face_Jali2")
 local rBody = asset(P .. "PC/CH_P_EVE_11/CH_P_EVE_11.CH_P_EVE_11")
 local rHair = asset(P .. "Monster/CH_M_NA_53/CH_M_NA_53_Hair.CH_M_NA_53_Hair")
@@ -49,6 +57,19 @@ local tBodies = { { BoneName = F.fname("Ab_Hair_L1_03"), DefaultInstance = { Lin
 tBody.PhysicsAsset = F.obj("CH_NPC_TachyNPC_Body_Physics", "PhysicsAsset", { SkeletalBodySetups = arr(tBodies) })
 local eveBody, eveFace, eveHair = F.obj("CH_P_EVE_01", "SkeletalMesh"), F.obj("CH_P_EVE_Face_Jali3", "SkeletalMesh"), F.obj("CH_P_EVE_Hair", "SkeletalMesh")
 eveBody.Materials, eveBody.mats = mats("CH_P_EVE_01", 3)
+-- (the skin material: Eve's head an instance of it, Tachy's face's slot 1 too, with its own textures and values)
+local skinM = F.obj("MA_Skin_EVE", "Material")
+local eveHead = F.obj("MI_EVE_Head_V02_Jali", "MaterialInstanceConstant", { Parent = skinM })
+eveFace.Materials, eveFace.mats = mats("CH_P_EVE_Face_Jali3", 3)
+eveFace.mats[2].MaterialInterface = eveHead
+local tHeadTex = F.obj("CH_M_NA_21_Head_A", "Texture2D")
+local function params(l) return arr(l) end
+local tHead = F.obj("MI_CH_NA_21_Head", "MaterialInstanceConstant", { Parent = skinM,
+  TextureParameterValues = params({ { ParameterInfo = { Name = F.fname("BaseColor"), Association = 2 }, ParameterValue = tHeadTex } }),
+  ScalarParameterValues = params({ { ParameterInfo = { Name = F.fname("BaseSSS"), Association = 2 }, ParameterValue = 0.7 },
+    { ParameterInfo = { Name = F.fname("LayerOnly"), Association = 0 }, ParameterValue = 9 } }),
+  VectorParameterValues = params({ { ParameterInfo = { Name = F.fname("BaseTint"), Association = 2 }, ParameterValue = { R = 1, G = 0.9, B = 0.8, A = 1 } } }) })
+tFace.mats[2].MaterialInterface = tHead
 local at = {} -- where each component is
 local function comp(name, sm)
   local c = F.obj(name, "SkeletalMeshComponent", { SkeletalMesh = sm, vis = true, over = {} })
@@ -68,6 +89,14 @@ local function comp(name, sm)
   c.IsMaterialSectionShown = function(self, id) return not self.hiddenM[id] end
   c.ShowAllMaterialSections = function(self) self.hiddenM = {} end
   c.SetAnimInstanceClass = function(self, cls) self.AnimClass = cls end
+  c.CreateDynamicMaterialInstance = function(self, i, parent)
+    local m = F.obj("MID_" .. i, "MaterialInstanceDynamic", { Parent = parent, set = {} })
+    m.SetTextureParameterValue = function(mm, n, v) mm.set[tostring(n)] = v end
+    m.SetScalarParameterValue = function(mm, n, v) mm.set[tostring(n)] = v end
+    m.SetVectorParameterValue = function(mm, n, v) mm.set[tostring(n)] = v end
+    self.over[i] = m
+    return m
+  end
   return c
 end
 local eveSword, eveFolded = F.obj("CH_W_Sword_01", "SkeletalMesh"), F.obj("CH_W_Sword_01_Folded", "SkeletalMesh")
@@ -142,10 +171,18 @@ quiet = false
 check(held ~= nil, "(her body loadable after)")
 tick()
 check(body.SkeletalMesh == tBody and face.SkeletalMesh == tFace, "Tachy: her body and face on Eve's components")
-check(body.hiddenM[4] and body.hiddenM[5] and not body.hiddenM[0], "her hair's sections hidden on Eve's body, the rest shown")
+check(body.hiddenM[0] and body.hiddenM[2] and not body.hiddenM[1] and not body.hiddenM[4],
+  "her hair's sections (found by name: another mod's order) hidden on Eve's body, the rest shown")
+local mid = face:GetMaterial(1)
+check(mid and mid.__cls == "MaterialInstanceDynamic" and mid.Parent == eveHead and mid.set.BaseColor == tHeadTex
+  and mid.set.BaseSSS == 0.7 and mid.set.BaseTint.G == 0.9 and mid.set.LayerOnly == nil and face:GetMaterial(0) == tFace.mats[1].MaterialInterface,
+  "her face's skin on Eve's head material with its own textures and values (its other slots its own)")
+face.over[1] = tHead -- (the game put the mesh's own back)
+tick()
+check(face:GetMaterial(1) == mid, "the game put her plain skin back: Eve's lit one again")
 local th = added[1]
-check(th and th.SkeletalMesh == tBody and th.parent == body and tostring(th.bone) == "Bip001-Head" and th.hiddenM[0]
-  and th.hiddenM[2] and not th.hiddenM[4], "a copy of her body at Eve's head, only its hair sections shown")
+check(th and th.SkeletalMesh == tBody and th.parent == body and tostring(th.bone) == "Bip001-Head" and th.hiddenM[1]
+  and th.hiddenM[3] and th.hiddenM[4] and not th.hiddenM[0] and not th.hiddenM[2], "a copy of her body at Eve's head, only its hair sections shown")
 check(th.cls == F.objects["/Script/Engine.PoseableMeshComponent"], "a poseable mesh: its bones posed by spring")
 -- (its bones: her head, one strand of three under it, a strand of hers not swung, her spine; made straight down)
 local tb = { { "Bip001-Spine", "None", 120 }, { "Bip001-Head", "Bip001-Spine", 150 }, { "Ab_Hair_L1_01", "Bip001-Head", 156 },
@@ -172,30 +209,65 @@ for _, l in ipairs(logs) do if l:find("Tachy's hair: at her head, 3 strand bones
 check(said, "its strand bones found (not another strand, not her spine)")
 PA.frame(body)
 local tip = th.posed["Ab_Hair_L1_03"]
-check(tip and tip.space == 0 and math.abs(tip.p.X) < 0.01 and math.abs(tip.p.Z - 140) < 0.5 and th.posed["Ab_Hair_L1_01"]
-  and not th.posed["Ab_Hair_X_01"] and not th.posed["Bip001-Head"], "first frame: posed as made, in the world, only its strands")
--- (her head moves 10 cm along X: the strands lag, then swing back)
-cw.X = 10
-F.t = F.t + 1 / 60; PA.frame(body)
-local lag = th.posed["Ab_Hair_L1_03"].p.X
-check(th.posed["Ab_Hair_L1_01"].p.X == 10 and lag < 9, "her head moved: its root with it, its tip behind (" .. string.format("%.1f", lag) .. ")")
-local l1 = th.posed["Ab_Hair_L1_02"].p
-local l2 = th.posed["Ab_Hair_L1_03"].p
-check(math.abs(math.sqrt((l1.X - l2.X) ^ 2 + (l1.Z - l2.Z) ^ 2) - 8) < 0.01, "its links keep their length")
+check(tip and tip.space == 1 and math.abs(tip.p.X) < 0.01 and math.abs(tip.p.Z - 140) < 0.5 and th.posed["Ab_Hair_L1_01"]
+  and not th.posed["Ab_Hair_X_01"] and not th.posed["Bip001-Head"], "first frame: posed as made, in its own space, only its strands")
+local function step(n, f) for _ = 1, n do F.t = F.t + 1 / 60; if f then f() end; PA.frame(body) end end
+local function tipX() return th.posed["Ab_Hair_L1_03"].p.X end
+-- (her head setting off along X, up to 400 cm/s: the strands left behind, then back under it while she runs on)
+local speed = 0
+step(12, function() speed = math.min(400, speed + 40); cw.X = cw.X + speed / 60 end)
+local lag = tipX()
+check(th.posed["Ab_Hair_L1_01"].p.X == 0 and lag < -0.5, "setting off: its root with her head, its tip behind (" .. string.format("%.1f", lag) .. ")")
+local l1, l2 = th.posed["Ab_Hair_L1_02"].p, th.posed["Ab_Hair_L1_03"].p
+check(math.abs(math.sqrt((l1.X - l2.X) ^ 2 + (l1.Y - l2.Y) ^ 2 + (l1.Z - l2.Z) ^ 2) - 8) < 0.01, "its links keep their length")
 local q = th.posed["Ab_Hair_L1_02"].q
 check(q.Y < -0.01 or q.Y > 0.01, "the bones turned along the swing")
-for _ = 1, 240 do F.t = F.t + 1 / 60; PA.frame(body) end
-check(math.abs(th.posed["Ab_Hair_L1_03"].p.X - 10) < 1.5, "settled back under her head")
--- (her neck's ball in the strand's way: pushed out)
-body.GetSocketLocation = function(_, b) return tostring(b) == "Bip001-Neck" and { X = 12, Y = 0, Z = 140 } or { X = 0, Y = 0, Z = -500 } end
-for _ = 1, 30 do F.t = F.t + 1 / 60; PA.frame(body) end
+step(120, function() cw.X = cw.X + 400 / 60 end)
+check(math.abs(tipX()) < 0.5, string.format("running straight on: hanging as made (%.2f)", tipX()))
+-- (her head's place read a frame late now and then while she runs: no kick)
+local most = 0
+for i = 1, 120 do
+  F.t = F.t + 1 / 60
+  cw.X = cw.X + 400 / 60
+  local was = cw.X
+  if i % 17 == 0 then cw.X = cw.X - 400 / 60 end
+  PA.frame(body)
+  cw.X = was
+  most = math.max(most, math.abs(tipX()))
+end
+check(most < 2, string.format("running, its place read late now and then: no kick (%.2f cm at most)", most))
+step(60)
+-- (her neck's ball in the strand's way: pushed out, PAD off it)
+body.GetSocketLocation = function(_, b) return tostring(b) == "Bip001-Neck" and { X = cw.X + 6, Y = 0, Z = 140 } or { X = 0, Y = 0, Z = -500 } end
+step(30)
 local p = th.posed["Ab_Hair_L1_03"].p
-check(math.sqrt((p.X - 12) ^ 2 + p.Y ^ 2 + (p.Z - 140) ^ 2) >= 5.4, "pushed out of the ball on her neck")
-body.GetSocketLocation = function() return { X = 0, Y = 0, Z = 160 } end
+check(math.sqrt((p.X - 6) ^ 2 + p.Y ^ 2 + (p.Z - 140) ^ 2) >= 5.5 + PA.SPRING.PAD - 0.05, "pushed out of the ball on her neck")
+body.GetSocketLocation = function() return { X = 0, Y = 0, Z = -500 } end
+step(120)
+-- (a capsule of her body across the strand's tip, along Y: the tip slides off it)
+local caps0 = PA.BODY_CAPS
+PA.BODY_CAPS = { { bone = "Bip001-Spine", r = 3, h = 20, at = { 0, 0, 0 }, q = { 0.7071, 0, 0, 0.7071 } } }
+body.GetSocketTransform = function(_, b) return { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+  Translation = tostring(b) == "Bip001-Spine" and { X = cw.X + 1, Y = 0, Z = 140 } or { X = 0, Y = 0, Z = -500 } } end
+step(30)
+p = th.posed["Ab_Hair_L1_03"].p
+check(math.sqrt((p.X - 1) ^ 2 + (p.Z - 140) ^ 2) >= 3 + PA.SPRING.PAD - 0.05,
+  string.format("slid off a capsule of her body (%.1f cm from its axis)", math.sqrt((p.X - 1) ^ 2 + (p.Z - 140) ^ 2)))
+PA.BODY_CAPS, body.GetSocketTransform = caps0, nil
+step(120)
+-- (her head pitched a quarter turn in a frame: no link further than MAX_DEG from its made direction)
+th.K2_GetComponentToWorld = function() return { Rotation = { X = 0, Y = 0.7071, Z = 0, W = 0.7071 }, Translation = { X = cw.X, Y = cw.Y, Z = cw.Z } } end
+step(1)
+local a, b = th.posed["Ab_Hair_L1_02"].p, th.posed["Ab_Hair_L1_03"].p
+local deg = math.deg(math.acos(math.min(1, (a.Z - b.Z) / math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2 + (a.Z - b.Z) ^ 2))))
+check(deg <= PA.SPRING.MAX_DEG + 0.5, string.format("flung round: its tip within %d degrees of hanging (%.0f)", PA.SPRING.MAX_DEG, deg))
+th.K2_GetComponentToWorld = function() return { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = cw.X, Y = cw.Y, Z = cw.Z } } end
+step(240)
 -- (a teleport: put back as made)
-cw.X = 5000
-F.t = F.t + 1 / 60; PA.frame(body)
-check(math.abs(th.posed["Ab_Hair_L1_03"].p.X - 5000) < 0.01, "a teleport: put back as made")
+cw.X = cw.X + 5000
+step(1)
+check(math.abs(tipX()) < 0.01, "a teleport: put back as made")
+body.GetSocketLocation = function() return { X = 0, Y = 0, Z = 160 } end
 tick()
 check(hair.vis == false, "Eve's hair hidden")
 check(sword.SkeletalMesh == tSword, "Tachy's sword in place of Eve's")
@@ -262,7 +334,7 @@ check(body.SkeletalMesh == tBody and not th.destroyed, "a pick while she is dead
 tick()
 check(body.SkeletalMesh == rBody and face.SkeletalMesh == rFace and face:GetMaterial(0) == rFace.mats[1].MaterialInterface,
   "Raven: her suit on Eve's body, her face on Eve's face component in its own materials")
-check(th.destroyed and not body.hiddenM[4], "Tachy's hair copy gone, Eve's body's sections all shown")
+check(th.destroyed and not body.hiddenM[0], "Tachy's hair copy gone, Eve's body's sections all shown")
 local rh
 for i = 2, #added do if added[i].SkeletalMesh == rHair then rh = added[i] end end
 check(rh and rh.SkeletalMesh == rHair and rh.master == nil and rh.vis == false and rh.parent == body and rh.weld == false,
@@ -294,7 +366,22 @@ check(#caps == 12 and caps[1].parent == body and tostring(caps[1].bone) == "Bip0
 check(rh.obj == 6 and rh.blocks[7] and not rh.blocks[6], "her hair blocks only the capsules' channel")
 local mw = rh.madeWith
 check(mw and mw[1] == 3 and mw[2] == 14 and mw[3] == 30, "its strand bodies made at her damping, upper and lower alike (her head's untouched)")
-check(rh.blend == 0.8 and tostring(rh.blendBelow) == "HBn_Root", "80% of its swing shown over the made shape")
+check(rh.blend == 0 and tostring(rh.blendBelow) == "HBn_Root", "set going: none of its swing shown yet")
+local rq = { X = 0, Y = 0, Z = 0, W = 1 }
+rh.K2_GetComponentToWorld = function() return { Rotation = rq, Translation = { X = 0, Y = 0, Z = 160 } } end
+for _ = 1, 30 do F.t = F.t + 1 / 60; PA.frame(body) end
+check(rh.blend > 0.05 and rh.blend < 0.6, string.format("half a second on: part of it (%.2f)", rh.blend))
+for _ = 1, 120 do F.t = F.t + 1 / 60; PA.frame(body) end
+check(math.abs(rh.blend - 0.8) < 0.03, string.format("a second on: 80%% of its swing shown over the made shape (%.2f)", rh.blend))
+-- (her head turning 15 degrees a frame, a roll: cut down at once, back after)
+for i = 1, 6 do
+  local h = math.rad(15 * i) / 2
+  rq = { X = 0, Y = math.sin(h), Z = 0, W = math.cos(h) }
+  F.t = F.t + 1 / 60; PA.frame(body)
+end
+check(math.abs(rh.blend - 0.8 * PA.STRANDS.SPIN_MIN) < 0.03, string.format("a roll: its swing cut down (%.2f)", rh.blend))
+for _ = 1, 120 do F.t = F.t + 1 / 60; PA.frame(body) end
+check(math.abs(rh.blend - 0.8) < 0.03, string.format("still again: back to 80%% (%.2f)", rh.blend))
 -- a strand flung away: put back, simulated again a second later
 rh.GetSocketLocation = function(_, b) return tostring(b) == "HBN_LMA09" and { X = 900, Y = 0, Z = 0 } or { X = 0, Y = 0, Z = 160 } end
 tick()
@@ -349,8 +436,8 @@ settings.who = "tachy"; tick()
 local mid = F.obj("MID_Tachy_M3", "MaterialInstanceDynamic", { Parent = tBody.mats[3].MaterialInterface })
 body.over[2] = mid
 settings.who = "eve"; tick()
-check(body.SkeletalMesh == eveBody and face.SkeletalMesh == eveFace and hair.vis == true and sword.SkeletalMesh == eveSword,
-  "Eve again: her own body, face, hair and sword")
+check(body.SkeletalMesh == eveBody and face.SkeletalMesh == eveFace and hair.vis == true and sword.SkeletalMesh == eveSword
+  and face:GetMaterial(1) == eveHead, "Eve again: her own body, face (her own head material), hair and sword")
 check(body:GetMaterial(1) == eveSkin and earring.vis == true and sword.hid == false and hairpin.hid == false,
   "her outfit's materials, accessory, sword and hairpin back")
 check(body:GetMaterial(0) == eveBody.mats[1].MaterialInterface and body:GetMaterial(2) == eveBody.mats[3].MaterialInterface,
@@ -435,4 +522,32 @@ check(told, "the log says what she wears now")
 body.SkeletalMesh = rBody -- (Raven's suit on her again)
 tick()
 check(body.SkeletalMesh == outfit and body:GetMaterial(0) == outfit.mats[1].MaterialInterface, "Raven's suit on her again after Eve: her outfit put back")
+-- another mod putting its outfit on her each second: taken back FIGHT_N - 1 times, then left to it (no more hitches)
+settings.who = "raven"; tick()
+local other = F.obj("CH_P_EVE_Other", "SkeletalMesh")
+other.Materials, other.mats = mats("CH_P_EVE_Other", 3)
+local swaps = 0
+for _ = 1, PA.FIGHT_N + 2 do
+  body.SkeletalMesh = other
+  tick()
+  if body.SkeletalMesh == rBody then swaps = swaps + 1 end
+end
+local told = false
+for _, l in ipairs(logs) do if l:find("by something else", 1, true) then told = true end end
+check(swaps == PA.FIGHT_N - 1 and body.SkeletalMesh == other and told, string.format("a fight with another mod: left to it after %d swaps back, said (%d)", PA.FIGHT_N - 1, swaps))
+F.t = F.t + PA.HOLD_S
+tick()
+check(body.SkeletalMesh == rBody, "a minute later: hers again")
+settings.who = "eve"; tick()
+
+-- the mod seeing her anew with Tachy's look on (it forgot her: a scene's copy of her ticked meanwhile): back to Eve she
+-- gets her own body, face, hair and earring, not Tachy's taken for hers
+settings.who = "tachy"; tick()
+check(body.SkeletalMesh == tBody and earring.vis == false and hair.vis == false, "(Tachy on)")
+PA.forget()
+tick()
+settings.who = "eve"; tick()
+check(body.SkeletalMesh ~= tBody and face.SkeletalMesh == eveFace and hair.vis == true and earring.vis == true,
+  "seen anew in Tachy's look, then Eve: her own body, face, hair and earring back (" .. tostring(body.SkeletalMesh.__name) .. ")")
+
 print(fails == 0 and "PASS" or "FAIL")

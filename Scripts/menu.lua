@@ -68,6 +68,7 @@ M.PAD = { "Gamepad_LeftShoulder", "Gamepad_RightShoulder", "Gamepad_RightThumbst
 M.nav = {} -- the arrow keys pressed since the menu last looked (main.lua's binds)
 M.state = { open = false, sel = 1, held = {}, toggled = 0 }
 M.tex = {}
+M.keyOf = {} -- (a key's name -> its FKey, made once)
 M.PIC_RETRY = 3
 
 local function read(p) local f = io.open(p, "r"); if not f then return nil end; local s = f:read("a"); f:close(); return s end
@@ -363,12 +364,20 @@ local function own_picture(c)
     end
   end
 end
+-- a texture still the one kept for key (its name as it was found: the engine let one go and another object took its
+-- place, and the picture showed blank, playtest) and with a size (one still streaming in has none)
+local function tex_ok(t, key)
+  if not valid(t) then return false end
+  local n = try(function() return t:GetFName():ToString() end)
+  return n ~= nil and n == M.texName[key] and (try(function() return t:Blueprint_GetSizeX() end) or 0) > 0
+end
+M.texName = {}
 local function picture(c)
   local t = M.tex[c.key]
-  if valid(t) then return t end
+  if tex_ok(t, c.key) then return t end
   c.ownAspect = nil
   t = not M.tex["-" .. c.key] and own_picture(c)
-  if t then M.tex[c.key] = t; return t end
+  if t then M.tex[c.key], M.texName[c.key] = t, try(function() return t:GetFName():ToString() end); return t end
   t = try(function() return StaticFindObject(c.tex) end)
   -- (one in memory but not loaded through yet, the game still streaming it in, has no size: put on the picture it
   -- showed nothing, and counted as shown it was never looked for again, playtest. Loaded here, it is finished first)
@@ -384,6 +393,8 @@ local function picture(c)
     end
   end
   M.tex[c.key] = valid(t) and t or nil
+  M.texName[c.key] = M.tex[c.key] and try(function() return t:GetFName():ToString() end) or nil
+  if M.tex[c.key] and not tex_ok(t, c.key) then M.tex[c.key] = nil end
   return M.tex[c.key]
 end
 
@@ -439,7 +450,7 @@ show_picture = function()
   local s, ui = M.state, M.state.ui
   local row = M.ROWS[s.sel]
   local c = row.char or char_of(s.who) or M.CHARS[1]
-  if s.shown ~= c.key or not valid(ui.picTex) then
+  if s.shown ~= c.key or not tex_ok(ui.picTex, c.key) then
     local t = picture(c)
     if t and try(function() ui.pic:SetBrushFromTexture(t, false); return true end) then
       -- (900 high, its foot above the key hints, its middle at 1550: the album's square overlaps the rows' right end
@@ -462,9 +473,14 @@ show_picture = function()
 end
 
 -- ---- open, close, her input held ----
+-- (asked each frame: the library and her controller kept while they are valid)
 local function controller(pawn)
-  local gs = StaticFindObject("/Script/Engine.Default__GameplayStatics")
-  return gs, valid(gs) and try(function() return gs:GetPlayerController(pawn, 0) end)
+  if not valid(M.gs) then M.gs = StaticFindObject("/Script/Engine.Default__GameplayStatics") end
+  local gs = M.gs
+  if not (valid(M.pc) and M.pcPawn == pawn) then
+    M.pc, M.pcPawn = valid(gs) and try(function() return gs:GetPlayerController(pawn, 0) end), pawn
+  end
+  return gs, M.pc
 end
 local function hold(pawn, on)
   local s = M.state
@@ -630,7 +646,13 @@ function M.tick(pawn)
   M.toast_tick()
   local _, pc = controller(pawn)
   if not valid(pc) then return end
-  local function down(name) return try(function() return pc:IsInputKeyDown({ KeyName = FName(name) }) end) == true end
+  -- (down, or pressed since the last frame: a tap that went down and up within one long frame, a hitch, was never
+  -- seen down, and the controller's buttons seemed not to answer, Nexus report)
+  local function down(name)
+    local k = M.keyOf[name]
+    if not k then k = { KeyName = FName(name) }; M.keyOf[name] = k end
+    return try(function() return pc:IsInputKeyDown(k) or pc:WasInputKeyJustPressed(k) end) == true
+  end
   -- (a settings.lua from before the menu has none: the default)
   local pad = ctx.settings.menuPad or M.PAD
   if type(pad) == "table" and #pad > 0 then
@@ -669,7 +691,7 @@ function M.tick(pawn)
   s.swallow = false
   -- her picture not there yet (not loaded while the game may be loading: Raven's stayed blank after a respawn,
   -- playtest), or the engine let the one shown go: looked for again twice a second
-  if (not s.shown or not valid(s.ui.picTex)) and now >= (s.picNext or 0) then s.picNext = now + 0.5; show_picture() end
+  if now >= (s.picNext or 0) then s.picNext = now + 0.5; show_picture() end
 end
 -- what was applied from elsewhere shown at once on an open menu
 function M.refresh()

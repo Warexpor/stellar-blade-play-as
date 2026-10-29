@@ -1,5 +1,15 @@
 # To do
 
+## After the Nexus reports (2026-10-29)
+
+- Tachy's and Raven's faces: `its skin (slot ...) lit as Eve's` in the log; skin tone as bright as Eve's neck and body, no seam of colour at the neck, no Eve blood or makeup in odd places. Any `its skin NOT lit as Eve's` line.
+- Stutter: play a few minutes as each; any `slow tick:` line says which part took the time. None and still stuttering: it's not this mod's tick.
+- Controller: L1 + R1 + R3 opens it, Circle closes it, Cross on Close closes it.
+- Tachy's hair: swinging with her head, not kicked running straight on, off her body; Raven's strands calm during a roll, swinging again after.
+- With an outfit mod switching her outfit: the `put on her 4 times in 30 s by something else` line, no hitch each second.
+- The menu's pictures: open it right after a level load and again later.
+- Back to Eve after each, also after a cutscene, photo mode, a death and a level load as that character: her own outfit, hair, ponytails and earrings; any `found on her ... as the mod saw her anew` line, and no `new Eve` line without a level load.
+
 ## Second playtest
 
 The sims pass (`test/run.sh`), and with the Gore mod its `native/sbslice/test/real/playas.sh` (its cuts and ragdoll fixes on these characters' meshes and physics assets). F4 (its menu: `menu:` lines), its `look:` and `voice:` lines in `StellarBladePlayAs/stellarbladeplayas.log`.

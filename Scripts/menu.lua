@@ -473,13 +473,13 @@ show_picture = function()
 end
 
 -- ---- open, close, her input held ----
--- (asked each frame: the library and her controller kept while they are valid)
+-- (asked each frame: the library kept while it is valid, her controller asked anew each time. Kept, the old level's
+-- one was asked IsValid after a quit to the title, and once its memory was freed UE4SS read it: the game crashed
+-- ~9 s after the quit, every time, playtest)
 local function controller(pawn)
   if not valid(M.gs) then M.gs = StaticFindObject("/Script/Engine.Default__GameplayStatics") end
   local gs = M.gs
-  if not (valid(M.pc) and M.pcPawn == pawn) then
-    M.pc, M.pcPawn = valid(gs) and try(function() return gs:GetPlayerController(pawn, 0) end), pawn
-  end
+  M.pc = valid(gs) and try(function() return gs:GetPlayerController(pawn, 0) end) or nil
   return gs, M.pc
 end
 local function hold(pawn, on)

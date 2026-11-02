@@ -5,6 +5,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 FAKE=$HERE
+[[ ${MSYSTEM:-} ]] && FAKE=$(cygpath -m "$FAKE")
 SEL=("$@"); [[ ${#SEL[@]} -eq 0 ]] && SEL=(looks voice main)
 fail=0
 for s in "${SEL[@]}"; do

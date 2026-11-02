@@ -6,6 +6,15 @@
 -- off gives Eve's sword back; Scarlet without the DLC changes nothing; with it her hair sections hidden and the game's
 -- Scarlet hairstyle for Eve on Eve's hair component; Eve again gives back every mesh and shows what was hidden
 local F = require("fake")
+-- Give fake objects stable UE asset paths, so saved paths can be resolved after a level reload.
+local make = F.obj
+F.obj = function(name, cls, props)
+  local o = make(name, cls, props)
+  local path = "/Game/Test/" .. name .. "." .. name
+  o.GetFullName = function() return (cls or "Object") .. " " .. path end
+  F.objects[path] = o
+  return o
+end
 local SCRIPTS = assert(os.getenv("SB_SCRIPTS"), "run from test/run.sh")
 local print = F.say
 local fails = 0
@@ -462,6 +471,12 @@ check(body:GetMaterial(0) == outfit.mats[1].MaterialInterface and body:GetMateri
 body.SkeletalMesh, body.over[1] = eveBody, eveSkin
 -- Scarlet with the DLC: her body, her face on Eve's face component, her blade turned back from Eve's socket's pitch
 local sBody = asset("/Game/DLC_2/Art/Character/Monster/CH_M_NA_961/CH_M_NA_961.CH_M_NA_961")
+do
+  local names = { "MI_CH_M_NA_961_01", "MI_CH_M_NA_961_Skin", "MI_CH_M_NA_961_03", "MI_CH_M_NA_961_Fur", "MI_CH_M_NA_961_02", "MI_CH_M_NA_961_Hair" }
+  local l = {}
+  for i, n in ipairs(names) do l[i] = { MaterialInterface = F.obj(n, "MaterialInstanceConstant") } end
+  sBody.Materials, sBody.mats = arr(l), l
+end
 local sFace = asset("/Game/DLC_2/Art/Character/Monster/CH_M_NA_961/CH_M_NA_961_Facial.CH_M_NA_961_Facial")
 local sBlade = asset("/Game/DLC_2/Art/Character/Monster/CH_M_NA_961/CH_M_NA_961_Weapon_01.CH_M_NA_961_Weapon_01")
 local sHair = asset("/Game/DLC_2/Art/Character/PC/00_HR/EVE_HR_Nikke_01/EVE_HR_Nikke_01.EVE_HR_Nikke_01")
@@ -498,6 +513,18 @@ check(body.hiddenM[5], "her body's hair hidden again")
 sword.RelativeRotation = { Pitch = 0, Yaw = 0, Roll = 0 } -- (the game attaches it again, snapped)
 PA.frame(body)
 check(sword.RelativeRotation.Pitch == 90, "the game set it back: turned again that frame")
+-- A replacement can put skin and clothing where the stock hair/hat slots used to be.
+local savedMats, savedList = sBody.Materials, sBody.mats
+do
+  local names = { "MI_CustomHat", "MI_CustomCloth", "MI_CustomLace", "MI_CustomSkin", "MI_CH_M_NA_961_Hair", "MI_CustomBody" }
+  local l = {}
+  for i, n in ipairs(names) do l[i] = { MaterialInterface = F.obj(n, "MaterialInstanceConstant") } end
+  sBody.Materials, sBody.mats, body.hiddenM = arr(l), l, {}
+  tick()
+  check(body.hiddenM[4] and not body.hiddenM[3] and not body.hiddenM[5],
+    "Scarlet replacement: only recognized hair hidden, reordered body materials left visible")
+end
+sBody.Materials, sBody.mats = savedMats, savedList
 settings.who = "eve"; tick()
 check(sword.SkeletalMesh == eveSword and sword.RelativeRotation.Pitch == 0 and face.SkeletalMesh == eveFace, "Eve: her sword unturned, her face back")
 check(hair.SkeletalMesh == eveHair and hair.AnimClass == eveHairAnim and hair.vis == true and not body.hiddenM[5],
@@ -540,6 +567,18 @@ tick()
 check(body.SkeletalMesh == rBody, "a minute later: hers again")
 settings.who = "eve"; tick()
 
+-- Optional NPC body path allows a boss-targeted replacement to be selected and safely restored.
+local rNpc = asset(P .. "Monster/CH_M_NA_53/CH_M_NA_53.CH_M_NA_53")
+local beforeNpc = body.SkeletalMesh
+settings.ravenNpcBody, settings.who = true, "raven"
+tick()
+check(body.SkeletalMesh == rNpc and PA.available("raven") == true, "opt-in Raven uses the NPC body asset")
+settings.who = "eve"; tick()
+check(body.SkeletalMesh == beforeNpc, "leaving NPC Raven restores Eve's previous mesh")
+settings.ravenNpcBody, settings.who = false, "raven"
+tick()
+check(body.SkeletalMesh == rBody, "default Raven still uses Eve's Raven outfit")
+settings.who = "eve"; tick()
 -- the mod seeing her anew with Tachy's look on (it forgot her: a scene's copy of her ticked meanwhile): back to Eve she
 -- gets her own body, face, hair and earring, not Tachy's taken for hers
 settings.who = "tachy"; tick()
@@ -549,5 +588,16 @@ tick()
 settings.who = "eve"; tick()
 check(body.SkeletalMesh ~= tBody and face.SkeletalMesh == eveFace and hair.vis == true and earring.vis == true,
   "seen anew in Tachy's look, then Eve: her own body, face, hair and earring back (" .. tostring(body.SkeletalMesh.__name) .. ")")
+
+-- A level unload can free Eve's former mesh. Resolve a replacement by path without touching the old wrapper.
+local old = body.SkeletalMesh
+settings.who = "tachy"; tick()
+PA.forget()
+old.IsValid = function() error("freed mesh wrapper was read") end
+local replacement = F.obj(old.__name, "SkeletalMesh")
+replacement.Materials, replacement.mats = mats(old.__name, 3)
+tick()
+settings.who = "eve"; tick()
+check(body.SkeletalMesh == replacement, "after unload, Eve's mesh is reacquired by path without reading the old wrapper")
 
 print(fails == 0 and "PASS" or "FAIL")

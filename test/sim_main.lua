@@ -122,7 +122,14 @@ check(has_text("Play As") and has_text("Eve") and has_text("Tachy") and has_text
 check(picture("eve_result") and has_text("Characters") and has_text("Adjust"), "Eve's picture on the right, its tab and key hints")
 check(modes[#modes] == "ui", "the mouse freed for it")
 -- a picture of your own for Tachy (portraits/tachy.png), read by the engine
-os.execute("mkdir -p " .. DIR .. "portraits")
+local function mkdir(path)
+  if package.config:sub(1, 1) == "\\" then
+    assert(os.execute('mkdir "' .. path:gsub("/", "\\") .. '" >nul 2>&1'))
+  else
+    assert(os.execute('mkdir -p "' .. path .. '"'))
+  end
+end
+mkdir(DIR .. "portraits")
 write(DIR .. "portraits/tachy.png", "png")
 local imported
 F.objects["/Script/Engine.Default__KismetRenderingLibrary"] = F.obj("Default__KismetRenderingLibrary", "KismetRenderingLibrary", {
@@ -211,13 +218,17 @@ check(log():find("menu: not made: .*settings.lua's who still picks") ~= nil and 
 -- installed before under its old name: its pick taken over once, and the old folder still there is told
 os.remove(DIR .. "choice.txt")
 local OLD = "ue4ss/Mods/SBPlayAs/"
-os.execute("mkdir -p " .. OLD .. "Scripts")
+mkdir(OLD .. "Scripts")
 write(OLD .. "choice.txt", "who=raven\nvoice=0\nblade=1\n")
 write(OLD .. "Scripts/main.lua", "")
 start()
 check(log():find("taken over from SBPlayAs") ~= nil and log():find("playing as Raven, voice off") ~= nil, "SBPlayAs's pick taken over")
 check(log():find("SBPlayAs %(this mod's old name%) is installed too") ~= nil, "the old one still installed: told")
-os.execute("rm -rf ue4ss/Mods/SBPlayAs")
+if package.config:sub(1, 1) == "\\" then
+  assert(os.execute('rmdir /s /q "ue4ss\\Mods\\SBPlayAs"'))
+else
+  assert(os.execute("rm -rf ue4ss/Mods/SBPlayAs"))
+end
 check(#F.errors == 0, "no errors (" .. table.concat(F.errors, "; ") .. ")")
 
 -- a pick made while she is dead (the menu in her death): her voice waits till she is up, as her look does (swapped at

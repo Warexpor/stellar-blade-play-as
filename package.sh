@@ -14,8 +14,8 @@ OTHER=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$ROOT/README.md" | grep -vxF "$VERSIO
 "$ROOT/test/run.sh" >/dev/null || { echo "test/run.sh fails: not packaged"; exit 1; }
 
 "$ROOT/build.sh" >/dev/null
-STAGE=$ROOT/build/stage
-OUT=$ROOT/release
+STAGE=${SB_BUILD:-$ROOT/build}/stage
+OUT=${SB_RELEASE:-$ROOT/release}
 mkdir -p "$OUT"
 # (for players: the README's install block only, and the license)
 rm -f "$STAGE/StellarBladePlayAs-README.md"

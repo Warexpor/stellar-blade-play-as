@@ -49,7 +49,10 @@ local ctx = { log = function(s) logs[#logs + 1] = s; print("  | " .. s) end,
   valid = function(x) return x ~= nil and x ~= false and (type(x) ~= "table" or rawget(x, "__dead") ~= true) end }
 local V = dofile(SCRIPTS .. "voice.lua")
 V.init(ctx)
-local function tick(who) F.t = F.t + 3.5; V.tick(who) end
+local function tick(who)
+  F.t = F.t + 3.5; V.tick(who)
+  for _ = 1, 100 do if not V._state().sweep then break end; V.tick(who) end
+end
 local function has(pat) for _, l in ipairs(logs) do if l:find(pat) then return true end end return false end
 
 tick("eve")
@@ -92,14 +95,19 @@ check(pl2[1].SoundWave == e1b and not said, "a level loading: Eve's stays, Raven
 quiet = false
 tick("raven")
 check(pl2[1].SoundWave == r[1], "the level in: Raven's on")
--- a sweep spread over ticks: PER_TICK of her cues a tick, the rest the next
-V.PER_TICK = 1
+-- Missing cues consume the same budget as loaded ones: a sparse sweep cannot bunch lookups into one frame.
 tick("eve")
+V.PER_TICK = 1
+local original_find, lookups = StaticFindObject, 0
+StaticFindObject = function(p)
+  if p:find("/Sound/Voice/PC/", 1, true) then lookups = lookups + 1 end
+  return original_find(p)
+end
 F.t = F.t + 3.5; V.tick("tachy")
-local one = (pl[1].SoundWave ~= e1 and 1 or 0) + (pd[1].SoundWave ~= d1 and 1 or 0)
-V.tick("tachy")
-local two = (pl[1].SoundWave ~= e1 and 1 or 0) + (pd[1].SoundWave ~= d1 and 1 or 0)
-check(one == 1 and two == 2, string.format("one cue a tick: %d after the first, %d after the second", one, two))
+check(lookups == 1, string.format("one cue lookup per tick even if missing (%d)", lookups))
+for _ = 1, 100 do if not V._state().sweep then break end; V.tick("tachy") end
+check(pl2[1].SoundWave == t[5] and pd[1].SoundWave == tdie, "spread sweep eventually updates loaded cues")
+StaticFindObject = original_find
 V.PER_TICK = 4
 
 -- her recordings not in memory: all loaded, and the whole sweep done, in the one tick that needs them
@@ -114,7 +122,7 @@ check(loads > 1 and pl[1].SoundWave ~= e1 and pd[1].SoundWave ~= d1,
   string.format("not in memory: all of hers loaded and on in one tick (%d loads)", loads))
 loads = 0
 F.t = F.t + 3.5
-for _ = 1, 4 do V.tick("tachy") end
+for _ = 1, 100 do if not V._state().sweep and _ > 1 then break end; V.tick("tachy") end
 check(loads == 0, string.format("after: no loads during play (%d)", loads))
 V.PER_TICK = 4
 StaticFindObject, LoadAsset = sfo, la

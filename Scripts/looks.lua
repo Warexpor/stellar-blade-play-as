@@ -53,6 +53,7 @@ M.LOOKS = {
   scarlet = { label = "Scarlet", body = "/Game/DLC_2/Art/Character/Monster/CH_M_NA_961/CH_M_NA_961.CH_M_NA_961",
     face = "/Game/DLC_2/Art/Character/Monster/CH_M_NA_961/CH_M_NA_961_Facial.CH_M_NA_961_Facial",
     hide = { hair = true }, dlc = true, hideMats = { 3, 4, 5 },
+    hideMatNames = { MI_CH_M_NA_961_Fur = true, MI_CH_M_NA_961_02 = true, MI_CH_M_NA_961_Hair = true },
     hair = { mesh = "/Game/DLC_2/Art/Character/PC/00_HR/EVE_HR_Nikke_01/EVE_HR_Nikke_01.EVE_HR_Nikke_01",
       anim = "/Game/DLC_2/Art/Character/PC/00_HR/EVE_HR_Nikke_01/EVE_HR_Nikke_01_AnimBP.EVE_HR_Nikke_01_AnimBP_C" },
     weapon = "/Game/DLC_2/Art/Character/Monster/CH_M_NA_961/CH_M_NA_961_Weapon_01.CH_M_NA_961_Weapon_01",
@@ -65,6 +66,16 @@ M.LOOKS = {
       damp = { 3, 14 }, blend = 0.8 } },
     weapon = P .. "Monster/CH_M_NA_53/CH_M_NA_53_Weapon.CH_M_NA_53_Weapon" },
 }
+-- Experimental: NPC replacements target this boss body rather than Eve's Raven outfit.
+-- Its skeleton differs from Eve's; this is opt-in until animations and gore are verified in game.
+M.LOOKS.ravenNpc = {}
+for k, v in pairs(M.LOOKS.raven) do M.LOOKS.ravenNpc[k] = v end
+M.LOOKS.ravenNpc.body = P .. "Monster/CH_M_NA_53/CH_M_NA_53.CH_M_NA_53"
+M.LOOKS.ravenNpc.label = "Raven (NPC body, experimental)"
+local function chosen_look(who)
+  if who == "raven" and cfg().ravenNpcBody == true then return M.LOOKS.ravenNpc end
+  return M.LOOKS[who]
+end
 -- her mesh slots (MeshInfoList's MeshSlot, ESBSkelMeshSlot): the face, the hair ones (Hair1, Ponytail, PonytailShort)
 -- and her outfit's accessories (Accessory1-5: Eve's, hidden on the others)
 M.FACE, M.HAIR1, M.HAIR, M.ACC = 1, 2, { [2] = true, [3] = true, [4] = true }, { [9] = true, [10] = true, [11] = true, [12] = true, [13] = true }
@@ -168,14 +179,28 @@ local function is_ours(m)
 end
 -- the last of Eve's own seen on her body, face and hair (and her hair's AnimBP), for the session: what goes back where
 -- one of ours was found in its place
+-- Only retain asset paths across levels: UE4SS IsValid dereferences a stale UObject after GC.
 local good = {}
+local function remember_good(role, o)
+  if not role or not valid(o) then return end
+  local full = try(function() return o:GetFullName() end)
+  local path = type(full) == "string" and full:match("%s(/[^%s]+)$")
+  good[role] = path
+end
+local function find_good(role)
+  local path = role and good[role]
+  if not path then return nil end
+  local o = try(function() return StaticFindObject(path) end)
+  return valid(o) and o or nil
+end
 local function own_or_good(role, m)
   if not valid(m) then return m end
-  if not is_ours(m) then good[role] = m; return m end
-  if valid(good[role]) then
+  if not is_ours(m) then remember_good(role, m); return m end
+  local saved = find_good(role)
+  if saved then
     log(string.format("%s found on her %s as the mod saw her anew: Eve's own %s kept for her instead", tostring(try(function()
-      return m:GetFName():ToString() end)), role, tostring(try(function() return good[role]:GetFName():ToString() end))))
-    return good[role]
+      return m:GetFName():ToString() end)), role, tostring(try(function() return saved:GetFName():ToString() end))))
+    return saved
   end
   log(string.format("%s found on her %s as the mod saw her anew, and none of Eve's own seen yet: it stays on with Eve",
     tostring(try(function() return m:GetFName():ToString() end)), role))
@@ -211,6 +236,16 @@ local function mat_ids(m, pat, ids)
   end
   table.sort(out)
   return #out > 0 and out or ids
+end
+-- Scarlet's boss replacements can reorder or replace materials: numeric slots could hide the whole body.
+local function named_mat_ids(m, names)
+  local out = {}
+  for k, mt in pairs(own_mats(m)) do
+    local n = valid(mt) and try(function() return mt:GetFName():ToString() end)
+    if n and names[n] then out[#out + 1] = k end
+  end
+  table.sort(out)
+  return out
 end
 local function addrs(l) local s = {} for _, x in pairs(l) do local a = addr(x); if a then s[a] = true end end return s end
 -- a material of one of the looks' meshes, or an instance the game made of one (its parents), and not one of keep (the
@@ -249,8 +284,8 @@ end
 local function regear(c, cur, role)
   local w = st.was.mats[addr(c)]
   -- (one of ours: not something the game put on her; what was kept stays)
-  if is_ours(cur) then return w and w.mesh or good[role] or cur end
-  if role then good[role] = cur end
+  if is_ours(cur) then return w and w.mesh or find_good(role) or cur end
+  if role then remember_good(role, cur) end
   local n = try(function() return c:GetNumMaterials() end) or 0
   local own = own_mats(cur)
   local keep = addrs(own)
@@ -865,13 +900,16 @@ local function put_hair(c, h, out)
   if addr(cur) == addr(m) and st.was.hair then return end
   if addr(cur) == addr(m) then
     -- (hers on already as the mod saw her anew: Eve's own hair and AnimBP, as last seen, are what go back)
-    st.was.hair = { comp = c, cls = good.hairCls, vis = true }
-    st.was.mats[addr(c)] = { comp = c, mats = {}, n = 0, mesh = good.hair }
-    out[#out + 1] = "(her hair on already: Eve's own " .. tostring(valid(good.hair) and try(function() return good.hair:GetFName():ToString() end)
+    local savedHair = find_good("hair")
+    st.was.hair = { comp = c, cls = find_good("hairCls"), vis = true }
+    st.was.mats[addr(c)] = { comp = c, mats = {}, n = 0, mesh = savedHair }
+    out[#out + 1] = "(her hair on already: Eve's own " .. tostring(savedHair and try(function() return savedHair:GetFName():ToString() end)
       or "NOT known: it stays on with Eve") .. " kept for her)"
     return
   end
-  if valid(cur) and not is_ours(cur) then good.hair, good.hairCls = cur, try(function() return c.AnimClass end) end
+  if valid(cur) and not is_ours(cur) then
+    remember_good("hair", cur); remember_good("hairCls", try(function() return c.AnimClass end))
+  end
   if st.was.mats[addr(c)] and valid(cur) then
     regear(c, cur, "hair")
     out[#out + 1] = "(the game put " .. tostring(try(function() return cur:GetFName():ToString() end)) .. " on her hair: hers for Eve)"
@@ -967,8 +1005,9 @@ local function apply(pawn, mesh, look)
     out[#out + 1] = "body " .. look.body:match("([^/.]+)$")
   end
   -- (her own hair's sections on her body hidden: again once the game's mesh came and went)
-  local hm = look.hideMats and mat_ids(body, look.hairMat, look.hideMats)
-  if hm and addr(try(function() return mesh.SkeletalMesh end)) == addr(body) and not hidden_mats(mesh, hm) then
+  local hm = look.hideMatNames and named_mat_ids(body, look.hideMatNames)
+    or look.hideMats and mat_ids(body, look.hairMat, look.hideMats)
+  if hm and #hm > 0 and addr(try(function() return mesh.SkeletalMesh end)) == addr(body) and not hidden_mats(mesh, hm) then
     local ok = sections(mesh, hm, false)
     out[#out + 1] = (ok and "its hair's sections hidden (" or "its hair's sections NOT hidden (") .. table.concat(hm, ", ") .. ")"
   end
@@ -1301,7 +1340,7 @@ function M.tick(pawn, mesh, dead)
   -- (a pick made while she is dead waits till she is up again)
   if dead then return end
   local who = cfg().who or "eve"
-  local look = M.LOOKS[who]
+  local look = chosen_look(who)
   local blade = cfg().blade ~= false
   if who ~= st.who or blade ~= st.blade then
     if st.who ~= "eve" then restore(who ~= st.who and ("now " .. who) or (blade and "her blade on" or "her blade off")) end
@@ -1345,7 +1384,7 @@ function M.apply_now() st.next = 0 end
 -- can she play as who: false once her body isn't in the game (Scarlet without the NIKKE content), nil while that
 -- can't be told (nothing may load now)
 function M.available(who)
-  local look = M.LOOKS[who]
+  local look = chosen_look(who)
   if not look then return true end
   if st.failed[look.body] then return false end
   if st.found[look.body] or valid(try(function() return StaticFindObject(look.body) end)) then return true end

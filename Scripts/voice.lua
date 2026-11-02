@@ -150,10 +150,11 @@ end
 -- (only the recordings put on a slot are loaded, and kept by it; one the game lacks is never asked for again: a load
 -- that fails is a synchronous wait on the game thread each time)
 -- (a sweep over all of Eve's cues took 30 ms, a hitch every few seconds: done PER_TICK of her cues in memory a tick,
--- the next sweep `every` s after the last ended; q: the cue names left of this sweep, by kind)
+-- the next sweep `every` s after the last ended; q: the cue names left of this sweep, by kind. Count missing
+-- cues too: finding a cue by path still costs a game-thread lookup even when it is not loaded.
 M.PER_TICK = 4
 local function apply(v, q)
-  local changed, cues = 0, 0
+  local changed, cues, found = 0, 0, 0
   for _, kind in ipairs(M.KINDS) do
     local list = q[kind] or {}
     local theirs = {}
@@ -164,10 +165,11 @@ local function apply(v, q)
     if #theirs == 0 then q[kind] = {}; list = {} end
     while #list > 0 and (cues < M.PER_TICK or st.loaded) do
       local name = table.remove(list, 1)
+      cues = cues + 1
       local cp = obj_path(name)
       local cue = find(cp, false)
       if cue then
-        cues = cues + 1
+        found = found + 1
         -- (louder: theirs are quieter than hers)
         local cur = try(function() return cue.VolumeMultiplier end)
         if cur then
@@ -213,7 +215,7 @@ local function apply(v, q)
       end
     end
   end
-  return changed, cues
+  return changed, found
 end
 
 -- the voice wanted (nil: Eve's), at most every `every` s: Eve's cues the game loads later get it on the next look

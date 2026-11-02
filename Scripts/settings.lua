@@ -5,6 +5,7 @@ return {
   voice = true,           -- her grunts, attack shouts, hurt and death sounds in the one she plays (false: Eve's)
   voiceVolume = 1.5,      -- their recordings are quieter than Eve's: her voice cues this much louder while theirs is on
   blade = true,           -- her own blade in place of Eve's sword (false: Eve's sword)
+  ravenNpcBody = false,   -- experimental: use Raven boss body for NPC skins; animation/gore not yet verified
   menuKey = "F4",         -- opens and closes the in-game menu (UE4SS key names: F1-F12, HOME, INS, ...)
   -- the menu on the controller, all held together: L1 + R1 + R3 on a PlayStation controller, LB + RB + R3 on an Xbox one
   -- (the shoulder buttons, not the triggers; the Gore mod's F3 menu is L1 + R1 + L3)

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2
+
+- Added an experimental ravenNpcBody setting that uses Raven's boss body asset, so NPC-targeted replacement mods can be tried while playing as Raven. Off by default; Raven's different skeleton means animation, appearance and Gore mod compatibility are unverified in game. Simulation checks selection and restoration.
+
+- Scarlet now hides her original hair, hat and fur by material name instead of fixed slots, so a boss mesh replacement that reorders body materials is less likely to become invisible. Unrecognized hair may remain visible; the reported outfit still needs an in-game test.
+
+- Avoided keeping Eve asset wrappers across level changes: the last known meshes and hair animation class are now looked up by path before use, reducing a possible freed-object crash. This is preventative; the current crash reports have no logs to confirm a cause.
+
+- Reduced a possible recurring voice-scan hitch: cue lookups now count against the per-frame limit even when the cue is not loaded. This is a speculative stutter fix and needs in-game verification.
+
+- The game crashed every time about 9 s after quitting to the title screen. The menu kept the game's player controller from frame to frame and asked it whether it was still valid; after the quit that was the old level's controller, and once its memory was freed the check read it and crashed (UE4SS's `IsValid` reads the object itself). The controller is asked of the game anew each frame again, nothing of it kept.
+
 ## 0.2.1
 
 - From the first Nexus reports:

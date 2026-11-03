@@ -146,6 +146,16 @@ local function asset(path)
   if not valid(a) and LoadAsset and (not ctx.may_load or ctx.may_load()) then a = try(function() return LoadAsset(path) end) end
   return valid(a) and a or nil
 end
+-- Reuse only the live component's current mesh, identified by the address previously resolved for this path.
+-- No UObject wrapper is retained across frames or level loads.
+local worn = {}
+local function worn_asset(path, comp)
+  local cur = valid(comp) and try(function() return comp.SkeletalMesh end)
+  if valid(cur) and worn[path] and addr(cur) == worn[path] then return cur end
+  local m = asset(path)
+  if valid(m) then worn[path] = addr(m) end
+  return m
+end
 local function mesh_name(c)
   local m = try(function() return c.SkeletalMesh end)
   return valid(m) and try(function() return m:GetFName():ToString() end) or nil
@@ -894,7 +904,7 @@ local function hidden_mats(c, ids) return try(function() return c:IsMaterialSect
 -- her hair component (Hair1) with another's hair for Eve (look.hair: its mesh, its AnimBP): what was on it kept for
 -- restore (a hair the game put on over it since: that one), shown though Eve's other hair is hidden
 local function put_hair(c, h, out)
-  local m = asset(h.mesh)
+  local m = worn_asset(h.mesh, c)
   if not m then return end
   local cur = try(function() return c.SkeletalMesh end)
   if addr(cur) == addr(m) and st.was.hair then return end
@@ -916,7 +926,10 @@ local function put_hair(c, h, out)
   end
   local vis = st.was.hair and st.was.hair.vis
   if vis == nil then vis = try(function() return c:IsVisible() end) == true end
-  st.was.hair = { comp = c, cls = try(function() return c.AnimClass end), vis = vis }
+  local empty = st.was.hair and st.was.hair.empty
+  if not st.was.hair then empty = not valid(cur)
+  elseif valid(cur) and not is_ours(cur) then empty = false end
+  st.was.hair = { comp = c, cls = try(function() return c.AnimClass end), vis = vis, empty = empty }
   wear(c, m)
   -- (its AnimBP loaded with the mesh, its post process)
   local cls = asset(h.anim)
@@ -976,7 +989,7 @@ end
 -- the look on her (again: anything the game put back). Returns a line for the log, or nil when all was in place
 local function apply(pawn, mesh, look)
   local out = {}
-  local body = asset(look.body)
+  local body = worn_asset(look.body, mesh)
   if not body then
     -- (not loaded now, the level loading: next second)
     if ctx.may_load and not ctx.may_load() then return nil end
@@ -1015,7 +1028,7 @@ local function apply(pawn, mesh, look)
     if s.face then
       if look.hide.face then hide(s.comp, mesh)
       elseif look.face then
-        local f = asset(look.face)
+        local f = worn_asset(look.face, s.comp)
         local fc = try(function() return s.comp.SkeletalMesh end)
         if f and addr(fc) ~= addr(f) and not (not fresh and valid(fc) and fighting(s.comp, fc)) then
           if not fresh and valid(fc) and addr(s.comp) == addr(st.was.face) then st.was.faceMesh = regear(s.comp, fc, "face") end
@@ -1304,8 +1317,9 @@ local function restore(why)
   if valid(mesh) then sections(mesh, nil) end
   if w.hair and valid(w.hair.comp) then
     local k = w.mats[addr(w.hair.comp)]
-    if k and valid(k.mesh) then unwear(w.hair.comp, k.mesh) end
-    if valid(w.hair.cls) then try(function() w.hair.comp:SetAnimInstanceClass(w.hair.cls) end) end
+    if k and valid(k.mesh) then unwear(w.hair.comp, k.mesh)
+    elseif w.hair.empty then try(function() w.hair.comp:SetSkeletalMesh(nil, true) end) end
+    if valid(w.hair.cls) or w.hair.empty then try(function() w.hair.comp:SetAnimInstanceClass(w.hair.cls) end) end
     if not w.hair.vis then try(function() w.hair.comp:SetVisibility(false, false) end) end
   end
   if valid(w.face) and valid(w.faceMesh) then unwear(w.face, w.faceMesh) end
@@ -1398,6 +1412,7 @@ end
 function M.current() return st.who end
 -- the level reloaded: nothing of the old Eve touched
 function M.forget()
+  worn = {}
   st.pawn, st.was, st.extras, st.blades, st.pinned, st.listed, st.pins, st.sockets, st.cut = nil, nil, {}, {}, {}, nil, {}, {}, nil
   st.turns, st.settle, st.settleTicks, st.skin, st.fights = {}, {}, nil, {}, {}
 end

@@ -5,7 +5,7 @@
 --   F4        the in-game picker (menu.lua; on the controller settings.menuPad): pick, Apply. Its one key
 -- All of it runs from Eve's own ReceiveTick (on the game thread). The menu's text is set by StellarBladePlayAs's own DLL
 -- (StellarBladePlayAsText, native/playas.c).
-local VERSION = "0.2.2"
+local VERSION = "0.2.3"
 local DIR = "ue4ss/Mods/StellarBladePlayAs/"
 local SCRIPTS = DIR .. "Scripts/"
 local CHOICE, LOG = DIR .. "choice.txt", DIR .. "stellarbladeplayas.log"

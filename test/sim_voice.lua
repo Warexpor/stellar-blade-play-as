@@ -50,8 +50,8 @@ local ctx = { log = function(s) logs[#logs + 1] = s; print("  | " .. s) end,
 local V = dofile(SCRIPTS .. "voice.lua")
 V.init(ctx)
 local function tick(who)
-  F.t = F.t + 3.5; V.tick(who)
-  for _ = 1, 100 do if not V._state().sweep then break end; V.tick(who) end
+  F.t = F.t + 3.5; V.tick(who, 3)
+  for _ = 1, 100 do if not V._state().sweep and not V._state().owed then break end; V.tick(who, 3) end
 end
 local function has(pat) for _, l in ipairs(logs) do if l:find(pat) then return true end end return false end
 
@@ -110,7 +110,7 @@ check(pl2[1].SoundWave == t[5] and pd[1].SoundWave == tdie, "spread sweep eventu
 StaticFindObject = original_find
 V.PER_TICK = 4
 
--- her recordings not in memory: all loaded, and the whole sweep done, in the one tick that needs them
+-- Expensive missing voice assets are spread across ticks, even after the first load.
 tick("eve")
 local sfo, la, loads = StaticFindObject, LoadAsset, 0
 StaticFindObject = function(p) if p:find("ActionVoice", 1, true) then return nil end return sfo(p) end
@@ -118,12 +118,9 @@ LoadAsset = function(p) loads = loads + 1; return la(p) end
 V.PER_TICK = 1
 F.t = F.t + 3.5
 V.tick("tachy")
-check(loads > 1 and pl[1].SoundWave ~= e1 and pd[1].SoundWave ~= d1,
-  string.format("not in memory: all of hers loaded and on in one tick (%d loads)", loads))
-loads = 0
-F.t = F.t + 3.5
-for _ = 1, 100 do if not V._state().sweep and _ > 1 then break end; V.tick("tachy") end
-check(loads == 0, string.format("after: no loads during play (%d)", loads))
+check(loads <= 4 and V._state().sweep ~= nil, string.format("voice loading is spread over ticks (%d loads initially)", loads))
+for _ = 1, 200 do if not V._state().sweep and not V._state().owed then break end; V.tick("tachy") end
+check(pl2[1].SoundWave == t[5] and pd[1].SoundWave == tdie, "spread loading eventually applies both cues")
 V.PER_TICK = 4
 StaticFindObject, LoadAsset = sfo, la
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+- Restore an initially empty hair slot and its visibility when returning from Scarlet to Eve. A playtest showed Scarlet’s hair and hat remaining on Eve after entering with an empty hair slot.
+
+- Avoid repeated full object lookups for character meshes already worn by the live component, and extend the completed voice sweep interval from 3 to 15 seconds. The playtest still logged look and voice spikes with Scarlet; new cues may take up to the next sweep to receive her voice, and in-game stutter still needs a retest.
+
+- Spread voice restoration and cue updates across frames instead of processing an entire loaded sweep at once. A playtest logged 8–15 second freezes during character changes and recurring voice spikes; one cue or restored recording is processed per tick, so switching takes longer and individual asset loads can still hitch. In-game verification is needed.
+
 ## 0.2.2
 
 - Added an experimental ravenNpcBody setting that uses Raven's boss body asset, so NPC-targeted replacement mods can be tried while playing as Raven. Off by default; Raven's different skeleton means animation, appearance and Gore mod compatibility are unverified in game. Simulation checks selection and restoration.

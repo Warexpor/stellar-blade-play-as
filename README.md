@@ -2,7 +2,7 @@
 
 Play Stellar Blade as Tachy, Raven or Scarlet. Pick her in an in-game menu (F4) built like the Stellar Blade Gore mod's F3 menu (the game's own settings screen), with the game's own art of each character beside the list. Eve wears that character's body, face or hair (in its own materials, Eve's outfit accessories hidden), and her blade; with the sword put away, that blade is hidden (it has no folded form for Eve's hairpin), and so is Eve's hairpin. Eve's grunts, attack shouts, hurt sounds and death cry are replaced with that character's own recordings from the game. Everything else is still Eve's: her moves, skills, combos, and physics. Needs [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) for Stellar Blade. Works on its own or alongside the Stellar Blade Gore mod.
 
-Version 0.2.2. See the [changelog](CHANGELOG.md).
+Version 0.2.3. See the [changelog](CHANGELOG.md).
 
 <!-- install -->
 ## Install
@@ -10,10 +10,10 @@ Version 0.2.2. See the [changelog](CHANGELOG.md).
 You need the game on Steam (Windows, Linux or Steam Deck). **The game folder** below is `StellarBlade`, the one with `SB` in it: in Steam, right-click Stellar Blade > Manage > Browse local files.
 
 1. **UE4SS** (skip if another mod already had you install it). Download `UE4SS_v3.1.0-6.zip` from [Chrisr0/RE-UE4SS](https://github.com/Chrisr0/RE-UE4SS/releases/tag/3.1.0-6), the Stellar Blade build (the regular UE4SS won't work). The Nexus "SB UE4SS" build ([mod 2952](https://www.nexusmods.com/stellarblade/mods/2952), 1.3) works too. Open it, go into its `UE4SS_v3.1.0-6` folder, and copy `dwmapi.dll` and the `ue4ss` folder into `StellarBlade/SB/Binaries/Win64/`, next to `SB-Win64-Shipping.exe`.
-2. **This mod.** Extract `StellarBladePlayAs-0.2.2.zip` straight into the game folder, merging folders when asked, so `StellarBladePlayAs` and `StellarBladePlayAsText` land in `SB/Binaries/Win64/ue4ss/Mods`.
+2. **This mod.** Extract `StellarBladePlayAs-0.2.3.zip` straight into the game folder, merging folders when asked, so `StellarBladePlayAs` and `StellarBladePlayAsText` land in `SB/Binaries/Win64/ue4ss/Mods`.
 3. **Linux / Steam Deck only:** in Steam, Stellar Blade > Properties > Launch Options, put `WINEDLLOVERRIDES="dwmapi=n,b" %command%`. (Without it Proton ignores UE4SS.) **On Windows leave Launch Options empty**: that line is for Proton and Windows can't run it.
 
-Start the game and press F4. To check it loaded, open `SB/Binaries/Win64/ue4ss/Mods/StellarBladePlayAs/stellarbladeplayas.log`: it has a line `StellarBladePlayAs 0.2.2 loaded: playing as ...`. **Updating:** extract the new zip over the old one; your pick stays, but `settings.lua` is the new one's (copy your edits back over). **Uninstalling:** delete those two folders. **Had it under its old name, SBPlayAs?** Delete `SBPlayAs`, `SBPlayAsText` (and `SBPlayAsWindow`, if there) from `Mods`; your pick is taken over from the old folder's `choice.txt`, and the log says if the old one is still installed (the two fight over her look).
+Start the game and press F4. To check it loaded, open `SB/Binaries/Win64/ue4ss/Mods/StellarBladePlayAs/stellarbladeplayas.log`: it has a line `StellarBladePlayAs 0.2.3 loaded: playing as ...`. **Updating:** extract the new zip over the old one; your pick stays, but `settings.lua` is the new one's (copy your edits back over). **Uninstalling:** delete those two folders. **Had it under its old name, SBPlayAs?** Delete `SBPlayAs`, `SBPlayAsText` (and `SBPlayAsWindow`, if there) from `Mods`; your pick is taken over from the old folder's `choice.txt`, and the log says if the old one is still installed (the two fight over her look).
 
 | Key | What it does |
 |---|---|
@@ -60,4 +60,4 @@ Scarlet hides the stock boss hair, hat and fur materials by name rather than slo
 
 Asset restore remembers the last known Eve meshes and hair animation class by path across levels, and looks them up again when needed; an asset that is no longer loaded is not dereferenced.
 
-How the voice works: the game voices Eve through SoundCues (`Sound/Voice/PC/eve_vo_*_Cue`), each a random pick of recordings. Each cue keeps its graph. Only the recording on each of its slots is swapped for one of the other character's, of the same kind: a light attack for a light attack, a heavy hit for a heavy hit, death for death. Eve's are put back by their asset paths. The cue's range and sound class stay Eve's; its volume is raised by `voiceVolume` while the recordings are another's.
+How the voice works: the game voices Eve through SoundCues (`Sound/Voice/PC/eve_vo_*_Cue`), each a random pick of recordings. Each cue keeps its graph. Only the recording on each of its slots is swapped for one of the other character's, of the same kind: a light attack for a light attack, a heavy hit for a heavy hit, death for death. Eve's are put back by their asset paths. Voice swaps and restoration run across frames to limit long stalls; individual asset loads may still hitch and the switch completes gradually. Newly loaded cues are checked about every 15 seconds. The cue's range and sound class stay Eve's; its volume is raised by `voiceVolume` while the recordings are another's.

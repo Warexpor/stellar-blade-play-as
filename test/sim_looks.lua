@@ -532,6 +532,21 @@ check(hair.SkeletalMesh == eveHair and hair.AnimClass == eveHairAnim and hair.vi
 check(sBody.PostProcessAnimBlueprint == nil, "the boss's body without a post process still")
 PA.frame(body)
 check(sword.RelativeRotation.Pitch == 0, "and left so")
+-- An empty hair slot must go back to empty, including its animation class and visibility.
+hair.SkeletalMesh, hair.AnimClass, hair.vis = nil, nil, false
+settings.who = "scarlet"; tick()
+check(hair.SkeletalMesh == sHair and hair.vis, "Scarlet fills an initially empty hair slot")
+local prevFind, lookups = StaticFindObject, 0
+StaticFindObject = function(path)
+  if path == PA.LOOKS.scarlet.body or path == PA.LOOKS.scarlet.face or path == PA.LOOKS.scarlet.hair.mesh then lookups = lookups + 1 end
+  return prevFind(path)
+end
+tick()
+StaticFindObject = prevFind
+check(lookups == 0, string.format("worn Scarlet meshes reused without full object scans (%d lookups)", lookups))
+settings.who = "eve"; tick()
+check(hair.SkeletalMesh == nil and hair.AnimClass == nil and not hair.vis, "Eve's initially empty hair slot restored")
+hair.SkeletalMesh, hair.AnimClass, hair.vis = eveHair, eveHairAnim, true
 -- Raven, her death and respawn (the game puts her outfit on as she gets up), then Eve: her outfit, not Raven's suit
 -- (playtest: back to Eve she still wore it). Raven's suit put on her again in the seconds after (what put it back
 -- unknown): hers again

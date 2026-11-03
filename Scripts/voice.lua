@@ -91,9 +91,7 @@ end
 -- (loaded from the pak only when main.lua's may_load says so: a load while the game loads a level waited on it, the
 -- gore mod found, an endless loading screen)
 local function may_load() return not ctx.may_load or ctx.may_load() end
--- (loads, each a wait on the game thread of 15-30 ms: two a tick, they were a hitch every frame for 10 s after the
--- level came in, the hair Tachy's strands swing in the same tick hitching with them, playtest. A sweep that loads
--- anything (st.loaded) is finished in that tick: one wait, as the level comes in or she is picked, none during play)
+-- A lookup or load may stall the game thread; sweeps and restoration are spread across ticks.
 local function find(path, load)
   local o = try(function() return StaticFindObject(path) end)
   if not valid(o) and load and LoadAsset and may_load() then
@@ -123,27 +121,41 @@ local function players(cue)
   return out
 end
 
--- Eve's waves back on every player we changed (by their paths: loaded again if they went; one that can't be loaded
--- now is owed, tried again on the next tick)
-local function restore(why)
-  local n, lost, left = 0, 0, {}
+-- Restore a bounded number of slots per tick; a character switch can leave hundreds of players.
+-- Resolve the old waves by path again, without retaining them across frames.
+local function restore_step(why)
+  local n, lost, count = 0, 0, 0
   for a, s in pairs(st.swapped) do
-    if valid(s.node) and addr(s.node) == a then
+    if count >= M.PER_TICK then break end
+    if not valid(s.node) or addr(s.node) ~= a then
+      st.swapped[a] = nil
+    else
       local w = find(s.path, true)
-      if w and try(function() s.node.SoundWave = w; return true end) then n = n + 1
-      elseif not may_load() then left[a] = s
-      else lost = lost + 1 end
+      count = count + 1
+      if w and try(function() s.node.SoundWave = w; return true end) then
+        n = n + 1; st.swapped[a] = nil
+      elseif may_load() then
+        lost = lost + 1; st.swapped[a] = nil
+      end
     end
   end
-  st.swapped, st.owed = left, next(left) ~= nil
-  -- (her cues' own volume; one not loaded now comes back from the pak with its own)
-  for p, v in pairs(st.vol) do
-    local cue = find(p, false)
-    if cue then try(function() cue.VolumeMultiplier = v end) end
+  st.owed = next(st.swapped) ~= nil
+  if not st.owed then
+    -- Restore cue volumes incrementally too: each path lookup can scan the object table.
+    for p, v in pairs(st.vol) do
+      if count >= M.PER_TICK then break end
+      local cue = find(p, false)
+      if cue then try(function() cue.VolumeMultiplier = v end) end
+      st.vol[p] = nil; count = count + 1
+    end
+    st.owed = next(st.vol) ~= nil
   end
-  st.vol = {}
-  if n + lost > 0 then log(string.format("Eve's voice back on %d recording slot(s)%s (%s)%s", n,
-    lost > 0 and string.format(", %d not found", lost) or "", why, st.owed and ", the rest once the level is in" or "")) end
+  if n + lost > 0 then st.restored = (st.restored or 0) + n; st.restoreLost = (st.restoreLost or 0) + lost end
+  if not st.owed and st.restored then
+    log(string.format("Eve's voice back on %d recording slot(s)%s (%s)", st.restored,
+      st.restoreLost > 0 and string.format(", %d not found", st.restoreLost) or "", why))
+    st.restored, st.restoreLost = nil, nil
+  end
 end
 
 -- the other's waves on Eve's cues (again where the game loaded a cue anew): how many players changed now
@@ -152,9 +164,10 @@ end
 -- (a sweep over all of Eve's cues took 30 ms, a hitch every few seconds: done PER_TICK of her cues in memory a tick,
 -- the next sweep `every` s after the last ended; q: the cue names left of this sweep, by kind. Count missing
 -- cues too: finding a cue by path still costs a game-thread lookup even when it is not loaded.
-M.PER_TICK = 4
+M.PER_TICK = 1
 local function apply(v, q)
   local changed, cues, found = 0, 0, 0
+  local resolved = {} -- only for this tick; the engine owns the assets across frames
   for _, kind in ipairs(M.KINDS) do
     local list = q[kind] or {}
     local theirs = {}
@@ -163,7 +176,7 @@ local function apply(v, q)
       if not st.missing[p] then theirs[#theirs + 1] = p end
     end
     if #theirs == 0 then q[kind] = {}; list = {} end
-    while #list > 0 and (cues < M.PER_TICK or st.loaded) do
+    while #list > 0 and cues < M.PER_TICK do
       local name = table.remove(list, 1)
       cues = cues + 1
       local cp = obj_path(name)
@@ -193,7 +206,8 @@ local function apply(v, q)
             p = theirs[(i - 1) % #theirs + 1]
             if path_of(cur) == p then break end
             st.tried = nil
-            want = find(p, true)
+            want = resolved[p] or find(p, true)
+            if want then resolved[p] = want end
             -- (not tried now, nothing may load: not missing)
             if want or st.tried ~= p then break end
             st.missing[p] = true
@@ -221,10 +235,14 @@ end
 -- the voice wanted (nil: Eve's), at most every `every` s: Eve's cues the game loads later get it on the next look
 function M.tick(who, every)
   local now = os.clock()
+  who = who or "eve"
   if who ~= st.who then
-    if st.who ~= "eve" then restore("now " .. (who or "eve")) end
-    st.who, st.next, st.sweep = who or "eve", 0, nil
-  elseif st.owed and may_load() then restore("owed")
+    st.who, st.next, st.sweep = who, 0, nil
+    st.owed = next(st.swapped) ~= nil or next(st.vol) ~= nil
+  end
+  if st.owed then
+    restore_step("now " .. who)
+    if st.owed then return end
   end
   local v = M.VOICES[st.who]
   if not v then st.sweep = nil; return end
@@ -238,10 +256,10 @@ function M.tick(who, every)
   local changed, cues = apply(v, w.q)
   w.changed, w.cues = w.changed + changed, w.cues + cues
   for _, l in pairs(w.q) do if #l > 0 then return end end
-  st.sweep, st.next = nil, now + (every or 3)
+  st.sweep, st.next = nil, now + (every or 15)
   if w.changed > 0 then log(string.format("%s's voice on %d recording slot(s) of %d of Eve's cues", st.who, w.changed, w.cues)) end
 end
-function M.off(why) if st.who ~= "eve" then restore(why) end; st.who = "eve" end
+function M.off(why) st.who = "eve"; st.sweep = nil; st.owed = next(st.swapped) ~= nil or next(st.vol) ~= nil; if st.owed then restore_step(why or "off") end end
 
 M._state = function() return st end
 return M
